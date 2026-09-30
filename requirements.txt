@@ -1,0 +1,7 @@
+# Зависимости для inflation_report.py
+# Установка: pip install -r requirements.txt   (в Jupyter: %pip install -r requirements.txt)
+pandas>=2.0
+numpy>=1.24
+openpyxl>=3.1      # чтение исходного Excel
+XlsxWriter>=3.1    # запись отчета с графиками
+matplotlib>=3.7    # нужен только для PDF (EXPORT_PDF = True)
