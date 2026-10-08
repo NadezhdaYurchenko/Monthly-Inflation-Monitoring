@@ -203,8 +203,9 @@ CORE_SAAR_MARKERS = {
 }
 CURRENT_YEAR_COLOR = BRAND["magenta"]
 PREVIOUS_YEAR_COLOR = BRAND["navy"]
-PALE_YEAR_COLORS = [BRAND[k] for k in ("light_blue", "light_purple", "light_green",
-                                       "light_mustard", "light_beige", "light_coral")]
+# Бледные годы на графике накопленной инфляции: одна голубо-сиреневая шкала между
+# фирменными #B1A8D3 и #A2CCEE — чем старше год, тем светлее (от ближнего к дальнему).
+PALE_YEAR_COLORS = ["#948CBD", "#A3A0CE", "#A6B7E0", "#ACCDEB", "#C2E0F2"]
 # Матрица: последние 3 месяца, остальной текущий год, прошлые годы.
 MATRIX_COLORS = (BRAND["magenta"], BRAND["navy"], BRAND["light_grey"])
 MATRIX_LABEL_COLORS = (BRAND["magenta"], BRAND["navy"], BRAND["grey"])
@@ -336,7 +337,6 @@ class InflationInput:
     sa_values: pd.DataFrame     # SA-индексы крупных категорий (те же id столбцов)
     cols: dict                  # id ключевых столбцов (хедлайн и т.д.)
     latest: pd.Timestamp        # последний месяц с данными по хедлайну
-    sa_notes: list = field(default_factory=list)
 
 
 def load_input(path: Path) -> InflationInput:
@@ -433,10 +433,10 @@ def load_input(path: Path) -> InflationInput:
         raise ValueError("В колонке хедлайна нет данных.")
 
     sa_values = _load_sa_sheet(sa_raw, meta, grid)
-    sa_notes = _complete_sa_structure(meta, weights, list(sa_values.columns), cols)
+    _assign_sa_groups(meta, list(sa_values.columns))
     return InflationInput(values=values, meta=meta, flags=flags, weights=weights,
                           weight_rows=weight_rows, sa_values=sa_values, cols=cols,
-                          latest=latest, sa_notes=sa_notes)
+                          latest=latest)
 
 
 def _load_sa_sheet(raw: pd.DataFrame | None, meta: pd.DataFrame, grid: pd.DatetimeIndex) -> pd.DataFrame:
@@ -474,21 +474,16 @@ def _load_sa_sheet(raw: pd.DataFrame | None, meta: pd.DataFrame, grid: pd.Dateti
     return pd.DataFrame(series, index=grid, dtype=float)
 
 
-def _complete_sa_structure(meta: pd.DataFrame, weights: pd.DataFrame, sa_cols: list,
-                           cols: dict) -> list:
+def _assign_sa_groups(meta: pd.DataFrame, sa_cols: list) -> None:
     """
-    Служебные SA-категории («Прочие ... (для SA)») — остатки групп, нужные только
-    для сезонного сглаживания (как агрегаты «АГ»): группы на листе «Данные» у них
-    нет, в детальную корзину и топ-5 они не входят. Но SA-хедлайн собирается из
-    крупных категорий вместе с ними, поэтому каждая SA-категория относится к своей
-    группе (ПР / НЕПР / У):
-      • группа берется из кода, а если кода нет — по блоку на листе SA (как в
-        формулах «SA Продовольственые товары» и др., где «Прочие» замыкают блок);
-      • если у служебной категории нет веса, он считается как остаток группы:
-        вес группы минус веса остальных SA-категорий группы (как на листе
-        «Расчет прочих»).
+    Служебные SA-категории («Прочие ... (для SA)») нужны только для сезонного
+    сглаживания: группы на листе «Данные» у них нет намеренно, поэтому в детальную
+    корзину, расчеты продов/непродов/услуг и топ-5 они не попадают. SA-хедлайн при
+    этом собирается из крупных категорий вместе с ними, поэтому для разложения на
+    вклады каждая SA-категория относится к своей группе (ПР / НЕПР / У): по коду,
+    а если кода нет — по блоку на листе SA (как в формулах «SA Продовольственые
+    товары» и др., где «Прочие» замыкают блок своей группы).
     """
-    notes = []
     tokens = meta["tokens"].to_dict()
     group = {}
     for c in sa_cols:
@@ -500,29 +495,13 @@ def _complete_sa_structure(meta: pd.DataFrame, weights: pd.DataFrame, sa_cols: l
         before = [group[x] for x in sa_cols[:k] if group[x]]
         after = [group[x] for x in sa_cols[k + 1:] if group[x]]
         g = before[-1] if before else (after[0] if after else None)
-        if g is None:
-            continue
-        group[c] = g
-        tokens[c] = tokens[c] | {g}
-        notes.append(f"«{meta.at[c, 'name']}» без кода группы → {g} (по блоку листа SA)")
+        if g is not None:
+            group[c] = g
+            tokens[c] = tokens[c] | {g}
     meta["tokens"] = pd.Series([tokens[i] for i in meta.index], index=meta.index, dtype=object)
     meta["sa_group"] = pd.Series([group.get(i) for i in meta.index], index=meta.index, dtype=object)
     meta["sa_service"] = pd.Series(
         [i in group and _is_na(meta.at[i, "group"]) for i in meta.index], index=meta.index)
-
-    total = {"ПР": cols.get("food"), "НЕПР": cols.get("nonfood"), "У": cols.get("services")}
-    for c in sa_cols:
-        g = group[c]
-        if not meta.at[c, "sa_service"] or g is None or total.get(g) is None:
-            continue
-        missing = weights[c].isna()
-        if not missing.any():
-            continue
-        others = [x for x in sa_cols if x != c and group[x] == g]
-        remainder = weights[total[g]] - weights[others].sum(axis=1, min_count=1)
-        weights.loc[missing, c] = remainder[missing]
-        notes.append(f"«{meta.at[c, 'name']}» без веса → остаток группы {g}")
-    return notes
 
 
 def find_column(meta: pd.DataFrame, aliases: Iterable[str], *, required: bool = True) -> int | None:
@@ -1176,34 +1155,6 @@ def calculate_report(inp: InflationInput) -> ReportData:
 # =============================================================================
 
 
-def code_mismatches(meta: pd.DataFrame) -> list:
-    """
-    Детальные категории (группа 0), у которых нет кода исключения (РУ, ПО, ВТ…),
-    который есть у ближайшей родительской группы с такими кодами. Иерархия
-    восстанавливается по порядку столбцов и уровням группы (1, 11, 111, …).
-    """
-    special = {c.upper() for c in CORE_EXCLUDE_CODES + CORE_EXCLUDE_TOURISM_CODES}
-    stack, out = [], []
-    for i in meta.index:
-        g = meta.at[i, "group"]
-        if _is_na(g):
-            stack = []
-            continue
-        if g == "0":
-            leaf = meta.at[i, "tokens"] & special
-            for _, parent in reversed(stack):
-                parent_codes = meta.at[parent, "tokens"] & special
-                if parent_codes:
-                    if parent_codes - leaf:
-                        out.append((i, parent, sorted(parent_codes - leaf)))
-                    break
-        elif set(g) == {"1"}:
-            while stack and stack[-1][0] >= len(g):
-                stack.pop()
-            stack.append((len(g), i))
-    return out
-
-
 def _wrap(items: list[str], indent: str = "       ") -> str:
     return textwrap.fill(", ".join(items), width=110, initial_indent=indent,
                          subsequent_indent=indent)
@@ -1250,19 +1201,6 @@ def print_checks(inp, coverage, hl_mm, hl_sa_mm, sa_basis, core_basis, core_diag
         if len(no_weight):
             print(f"   ⚠️ Есть данные, но нет веса «Вес {latest.year}» (в расчеты не входят): "
                   f"{meta.loc[no_weight[:8], 'name'].tolist()}{' …' if len(no_weight) > 8 else ''}")
-        mismatches = code_mismatches(meta)
-        if mismatches:
-            weight = sum(inp.weights.at[latest, i] for i, _, _ in mismatches
-                         if not _is_na(inp.weights.at[latest, i]))
-            print(f"   ⚠️ Код позиции расходится с кодом ее группы — в методе исключения такие "
-                  f"позиции не исключаются ({weight:.2f}% веса в {latest.year} г.):")
-            by_parent: dict = {}
-            for i, parent, codes in mismatches:
-                by_parent.setdefault((parent, tuple(codes)), []).append(i)
-            for (parent, codes), leaves in by_parent.items():
-                print(f"     группа «{meta.at[parent, 'name']}» ({meta.at[parent, 'code']}), "
-                      f"у позиций нет {', '.join(codes)}:")
-                print(_wrap([f"{meta.at[i, 'name']} ({meta.at[i, 'code']})" for i in leaves]))
         group1 = meta.index[meta["group"].eq("1")]
         w1 = inp.weights.loc[latest, group1].sum()
         if abs(w1 - 100) > 0.5:
@@ -1277,9 +1215,9 @@ def print_checks(inp, coverage, hl_mm, hl_sa_mm, sa_basis, core_basis, core_diag
         status = "✅" if diff < 0.005 else "⚠️"
         print(f"2) {status} SA-хедлайн, пересчитанный из крупных SA-категорий, vs столбец "
               f"«SA Все товары и услуги»: макс. расхождение {diff:.1e} п.п.")
-        if inp.sa_notes:
-            print("   ℹ️ Служебные SA-категории: " + "; ".join(inp.sa_notes))
-        # Вклады групп по крупным категориям vs ваши столбцы «SA Продовольственые товары» и т.д.
+        # Вклады групп по крупным категориям vs ваши столбцы «SA Продовольственые товары»
+        # и т.д. Молчит, пока все сходится; напишет, если, например, переставить столбцы
+        # на листе SA и «Прочие» окажутся не в своем блоке.
         pairs = [("ПР", "food", "sa_food"), ("НЕПР", "nonfood", "sa_nonfood"), ("У", "services", "sa_services")]
         if all(inp.cols.get(a) is not None and inp.cols.get(b) is not None for _, a, b in pairs):
             w = sa_basis.ew.where(sa_basis.mm.notna())
@@ -1292,9 +1230,9 @@ def print_checks(inp, coverage, hl_mm, hl_sa_mm, sa_basis, core_basis, core_diag
                 by_aggregate = (agg_ew[inp.cols[a]] * (inp.values[inp.cols[b]] - 100.0)
                                 / agg_ew.sum(axis=1))
                 worst = max(worst, float((by_categories - by_aggregate).loc[:latest].abs().max()))
-            status = "✅" if worst < 0.005 else "⚠️"
-            print(f"   {status} Вклады продовольствия, непрода и услуг совпадают с расчетом по столбцам "
-                  f"«SA ...» и весам групп: макс. расхождение {worst:.1e} п.п.")
+            if worst >= 0.005:
+                print(f"   ⚠️ Вклады продовольствия, непрода и услуг расходятся с расчетом по столбцам "
+                      f"«SA ...» на {worst:.3f} п.п.: проверьте коды и порядок столбцов листа SA.")
         weight_sum = inp.weights[sa_basis.cols].where(sa_basis.mm.notna()).sum(axis=1)
         bad_years = sorted({d.year for d, v in weight_sum.loc[:latest].items() if abs(v - 100) > 0.05})
         if bad_years:
@@ -1607,7 +1545,7 @@ def _ytd_chart(wb, sheet: str, ytd: pd.DataFrame, col0: int, title: str, current
         hidden_years = set(older)
     else:
         older = [y for y in pale if y in years]
-        styles = {y: _line(PALE_YEAR_COLORS[k % len(PALE_YEAR_COLORS)], 1.5)
+        styles = {y: _line(PALE_YEAR_COLORS[min(k, len(PALE_YEAR_COLORS) - 1)], 1.5)
                   for k, y in enumerate(older)}
         hidden_years = set()
     styles[previous] = _line(PREVIOUS_YEAR_COLOR, 2.25)
@@ -1966,7 +1904,7 @@ def export_pdf(report: ReportData, path: Path) -> None:
             else:
                 for k, y in reversed(list(enumerate(pale))):
                     if y in years:
-                        ax.plot(months, ytd[y], color=PALE_YEAR_COLORS[k % len(PALE_YEAR_COLORS)],
+                        ax.plot(months, ytd[y], color=PALE_YEAR_COLORS[min(k, len(PALE_YEAR_COLORS) - 1)],
                                 lw=1.5, label=y)
             if previous in years:
                 ax.plot(months, ytd[previous], color=PREVIOUS_YEAR_COLOR, lw=2.25, label=previous)
