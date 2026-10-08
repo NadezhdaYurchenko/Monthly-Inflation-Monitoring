@@ -1529,12 +1529,18 @@ def _sheet_contributions(wb, st, report: ReportData) -> None:
     ws.insert_chart(1, len(df.columns) + 1, ch)
 
 
+def _past_years_label(years: list) -> str:
+    """Подпись в легенде для всех бледно-серых линий сразу: «Прошлые годы (2002–2024)»."""
+    first, last = min(years), max(years)
+    return f"Прошлые годы ({first})" if first == last else f"Прошлые годы ({first}–{last})"
+
+
 def _ytd_chart(wb, sheet: str, ytd: pd.DataFrame, col0: int, title: str, current: str,
                previous: str, pale: list | None) -> object | None:
     """
     Накопленная с начала года: текущий год — розовым, прошлый — темно-синим.
     pale — список лет для бледных линий разного цвета; None — все остальные годы
-    светло-серым (без подписей в легенде).
+    светло-серым, в легенде — одной строкой «Прошлые годы (…)».
     """
     years = list(ytd.columns[1:])
     if not years:
@@ -1552,13 +1558,22 @@ def _ytd_chart(wb, sheet: str, ytd: pd.DataFrame, col0: int, title: str, current
     styles[current] = _line(CURRENT_YEAR_COLOR, 2.75)
     order = list(reversed(older)) + [y for y in (previous, current) if y in years]
     ch = wb.add_chart({"type": "line"})
+    if hidden_years:
+        # Строка легенды для серых линий — отдельная пустая серия (ссылается на пустой
+        # столбец сразу справа от таблицы): так у каждой серой линии остается ее год
+        # в подсказке Excel, а в легенде они не перечисляются по одной.
+        gap = col0 + len(ytd.columns)
+        ch.add_series({"name": _past_years_label(sorted(hidden_years)),
+                       "categories": [sheet, 1, col0, 12, col0],
+                       "values": [sheet, 1, gap, 12, gap], "line": _line(BRAND["light_grey"], 1.0)})
+    shift = 1 if hidden_years else 0
     hidden = []
     for i, year in enumerate(order):
         j = col0 + list(ytd.columns).index(year)
         ch.add_series({"name": year, "categories": [sheet, 1, col0, 12, col0],
                        "values": [sheet, 1, j, 12, j], "line": styles[year]})
         if year in hidden_years:
-            hidden.append(i)
+            hidden.append(i + shift)
     _style_chart(ch, title, date_axis=False, delete_from_legend=hidden or None)
     return ch
 
@@ -1727,7 +1742,7 @@ def _sheet_category(wb, st, report: ReportData, cat: dict, used: set) -> None:
         ws.insert_chart(row, chart_col, ch)
         row += _chart_height_rows(CHART_SIZE[1])
 
-    # Накопленная с начала года: все прошлые годы (бледно-серым, без легенды).
+    # Накопленная с начала года: все прошлые годы бледно-серым (в легенде — «Прошлые годы (…)»).
     ch = _ytd_chart(wb, name, ytd, ytd_col, f"{cat['name']}: накопленная с начала года инфляция, %",
                     cat["current_year"], str(int(cat["current_year"]) - 1), None)
     if ch is not None:
@@ -1898,9 +1913,10 @@ def export_pdf(report: ReportData, path: Path) -> None:
             fig, ax = new_axes()
             months = range(12)
             if pale is None:
-                for y in years:
-                    if y not in (current, previous):
-                        ax.plot(months, ytd[y], color=BRAND["light_grey"], lw=1.0)
+                older = [y for y in years if y not in (current, previous)]
+                for k, y in enumerate(older):
+                    ax.plot(months, ytd[y], color=BRAND["light_grey"], lw=1.0,
+                            label=_past_years_label(older) if k == 0 else None)
             else:
                 for k, y in reversed(list(enumerate(pale))):
                     if y in years:
