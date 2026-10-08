@@ -4,16 +4,17 @@
 
 Скрипт читает исходный Excel-файл, считает показатели в Python и сохраняет отчет
 в Excel: на каждом листе таблица с данными (за весь период, с 2002 г.) и рядом
-редактируемые Excel-графики (с 2024 г.), оформленные по брендбуку.
-По желанию дополнительно формирует PDF с теми же графиками.
+редактируемые Excel-графики (с 2024 г.). По желанию дополнительно формирует PDF
+с теми же графиками.
 
 Листы отчета:
-    1. Хедлайн и базовая — м/м (SA и nSA), г/г и SAAR хедлайна и четырех мер
-       базовой инфляции;
-    2. Вклады — разложение SA-хедлайна м/м на вклады (набор компонентов задается
+    1. Хедлайн и базовая — м./м. и г./г. хедлайна, диапазон четырех мер базовой
+       инфляции, SAAR;
+    2. Вклады — разложение SA-хедлайна м./м. на вклады (набор компонентов задается
        в настройках), месяцы на графике сгруппированы по кварталам;
-    3. Накопленная — уровень цен в % к январю текущего года;
-    4. Монетарная и немонетарная инфляция;
+    3. Накопленная — накопленная с начала года инфляция: текущий год против
+       прошлых лет;
+    4. Монетарная и немонетарная инфляция, м./м. и г./г.;
     5. Матрица «инфляция — разброс изменений цен по корзине»;
     6. Топ-5 категорий;
     7+. Отдельные категории (по названию столбца), если они заданы.
@@ -45,7 +46,7 @@ CHART_START = "2024-01"
 
 # ── 3. Лист 1: хедлайн и базовая инфляция ─────────────────────────────────────
 # На каких данных считать базовую инфляцию:
-#   "SA"  — 44 крупные категории с листа «SA крупные категории». И отбор категорий
+#   "SA"  — крупные категории с листа «SA крупные категории». И отбор категорий
 #           (волатильность, усечение), и агрегирование — по SA-данным.
 #           История с 2002 г. Рекомендуемый вариант.
 #   "nSA" — детальные категории (группа 0) без сезонной корректировки.
@@ -53,7 +54,7 @@ CHART_START = "2024-01"
 CORE_BASIS = "SA"
 
 # Метод 1 — без 20% наиболее волатильных категорий.
-CORE_VOLATILITY_WINDOW = 3      # окно в месяцах (включая текущий) для дисперсии м/м
+CORE_VOLATILITY_WINDOW = 3      # окно в месяцах (включая текущий) для дисперсии м./м.
 CORE_VOLATILITY_SHARE = 0.20    # доля исключаемых категорий (по числу категорий)
 
 # Метод 2 — усечение (trimmed mean): доли веса, отрезаемые снизу и сверху.
@@ -68,8 +69,9 @@ CORE_EXCLUDE_CODES = ["РУ", "ЖКУ", "ПО", "С", "А", "ТМ", "ТНМ"]
 # Метод 4 — исключение без туризма: к кодам метода 3 добавляются эти.
 CORE_EXCLUDE_TOURISM_CODES = ["ВТ", "ЗТ"]
 
-# ── 4. Лист 2: вклады в хедлайн м/м ───────────────────────────────────────────
-# "SA"  — вклады в SA-хедлайн по 44 крупным SA-категориям (история с 2002 г.).
+# ── 4. Лист 2: вклады в хедлайн м./м. ─────────────────────────────────────────
+# "SA"  — вклады в SA-хедлайн по крупным SA-категориям (история с 2002 г.).
+#         Сумма вкладов точно равна столбцу «SA Все товары и услуги».
 # "nSA" — вклады в хедлайн без сезонной корректировки по детальным категориям
 #         (с 2024 г.). Нужен, когда разложению нужны коды, которых нет у крупных
 #         категорий (например, РУ — регулируемые услуги).
@@ -85,6 +87,7 @@ CONTRIBUTIONS_BASIS = "SA"
 #   "остальное": True        — всё, что не попало в другие компоненты
 # Категория попадает в ПЕРВЫЙ подходящий компонент сверху вниз, поэтому
 # «остальные продовольственные» достаточно записать после «плодоовощей».
+# «Прочие (для SA)» всегда относятся к своей группе (ПР / НЕПР / У).
 CONTRIBUTIONS = [
     ("Продовольственные товары", {"код": ["ПР"]}),
     ("Непродовольственные товары", {"код": ["НЕПР"]}),
@@ -97,9 +100,9 @@ CONTRIBUTIONS = [
 #     ("Непродовольственные товары", {"код": ["НЕПР"]}),
 #     ("Услуги", {"код": ["У"]}),
 # ]
-# CONTRIBUTIONS = [
+# CONTRIBUTIONS = [                        # у «Прочих (для SA)» флагов нет — они в «остальном»
 #     ("Подверженные колебаниям валютного курса", {"Вал.курс": 1}),
-#     ("Не подверженные колебаниям валютного курса", {"Вал.курс": 0}),
+#     ("Остальные товары и услуги", {"остальное": True}),
 # ]
 # CONTRIBUTIONS = [                        # только с CONTRIBUTIONS_BASIS = "nSA"
 #     ("Продовольственные товары", {"код": ["ПР"]}),
@@ -108,29 +111,25 @@ CONTRIBUTIONS = [
 #     ("Нерегулируемые услуги", {"код": ["У"]}),
 # ]
 
-# ── 5. Лист 3: накопленная инфляция ───────────────────────────────────────────
-# Уровень цен в % к базовому месяцу текущего года (в базовом месяце = 0):
-# правее базы — рост цен (> 0), левее — более низкий уровень цен (< 0).
-CUMULATIVE_BASE_MONTH = 1       # 1 = январь текущего года; 0 = декабрь прошлого года
-# Хедлайн выводится всегда. Дополнительные линии — названия столбцов листа
-# «Данные» или рассчитанных рядов ("Хедлайн SA", "Базовая: усечение 10%/10%",
-# "Монетарная" и т.п. — полный список печатается при запуске).
-CUMULATIVE_EXTRA_SERIES = []    # например: ["Продовольственные товары", "Услуги"]
+# ── 5. Лист 3: накопленная с начала года инфляция ─────────────────────────────
+# Хедлайн по годам: текущий год — розовым, прошлый — темно-синим и еще столько
+# лет до прошлого — бледными цветами. В таблице — все годы с 2002 г.
+CUMULATIVE_PALE_YEARS = 5
 
 # ── 6. Лист 4: монетарная и немонетарная инфляция ─────────────────────────────
 # Детальные категории делятся по флагу: 1 → первая линия, 0 → вторая.
+# Два графика: м./м. и г./г.
 SPLIT_FLAG = "Монетар. Инфляция"
 SPLIT_NAMES = ("Монетарная", "Немонетарная")
-SPLIT_CHART = "г/г"             # что показывать на графике: "г/г" или "м/м"
 
 # ── 7. Лист 5: матрица «инфляция — разброс по корзине» ────────────────────────
-MATRIX_BASIS = "SA"             # "SA":  SA-хедлайн м/м и разброс SA м/м по 44 крупным категориям
-                                # "nSA": хедлайн м/м и разброс м/м по детальным категориям
-MATRIX_DISPERSION = "std"       # "std" — взвешенное стандартное отклонение м/м по корзине;
+MATRIX_BASIS = "SA"             # "SA":  SA-хедлайн м./м. и разброс SA м./м. по крупным категориям
+                                # "nSA": хедлайн м./м. и разброс м./м. по детальным категориям
+MATRIX_DISPERSION = "std"       # "std" — взвешенное стандартное отклонение м./м. по корзине;
                                 # "iqr" — взвешенный межквартильный размах (устойчив к выбросам;
                                 #         для "nSA" лучше он: иначе разброс задают единичные позиции)
 MATRIX_YEARS = 3                # сколько календарных лет наносить (включая текущий)
-MATRIX_TARGET_SAAR = 4.0        # граница «высокая/низкая»: м/м, соответствующий 4% в год
+MATRIX_TARGET_SAAR = 4.0        # граница «высокая/низкая»: м./м., соответствующий 4% в год
 
 # ── 8. Лист 6: топ-5 ──────────────────────────────────────────────────────────
 TOP_GROUPS = ["1", "11", "111", "0"]
@@ -145,7 +144,7 @@ SELECTED_CATEGORIES = ["Мясопродукты"]
 DATA_SHEET = "Данные"
 SA_SHEET = "SA крупные категории"
 CODE_IMPLIES = {"ЖКУ": ["У"]}           # ЖКУ — это услуги: код ЖКУ означает и У
-VALIDATION_TOLERANCE_PP = 0.15          # допуск сверки с Росстатом, п.п. м/м
+VALIDATION_TOLERANCE_PP = 0.15          # допуск сверки с Росстатом, п.п. м./м.
 MIN_DETAILED_COVERAGE_WEIGHT = 95.0     # месяцы с меньшим покрытием веса детальными
                                         # категориями не считаются (в % веса)
 COLUMN_ALIASES = {
@@ -154,15 +153,19 @@ COLUMN_ALIASES = {
     "food": ["Продовольственные товары"],
     "nonfood": ["Непродовольственные товары"],
     "services": ["Услуги"],
+    "sa_food": ["SA Продовольственые товары", "SA Продовольственные товары"],
+    "sa_nonfood": ["SA Непродовольственная инфляция", "SA Непродовольственные товары"],
+    "sa_services": ["SA Услуги"],
 }
 
 # ╔═════════════════════════════════════════════════════════════════════════════╗
-# ║                  ОФОРМЛЕНИЕ ПО БРЕНДБУКУ (версия 3.0)                       ║
+# ║                               ОФОРМЛЕНИЕ                                    ║
 # ╚═════════════════════════════════════════════════════════════════════════════╝
-# Цвета — раздел 1.9 «Цвета для графиков и диаграмм». Шрифты — раздел 1.10:
-# в офисных документах заголовки набираются Arial, основной текст — Times New
-# Roman. Полужирное начертание запрещено, заголовки и подписи к графикам —
-# фирменным серым (раздел 1.11). На графиках брендбука нет линий сетки.
+# Цвета — брендбук, раздел 1.9 «Цвета для графиков и диаграмм». Остальное — как
+# принято в центре: всё набирается Arial; заголовок графика слева, черный,
+# жирный; оси черные; ось Y справа (пересекает ось X «в максимальном значении»);
+# легенда снизу; без линий сетки; на линиях хедлайна нет маркеров; боковой зазор
+# у столбцов 20%.
 BRAND = {
     "navy": "#1E3B56", "magenta": "#B1046E", "beige": "#A99892", "blue": "#009AD9",
     "coral": "#ED695A", "purple": "#6758A2", "green": "#6EBC84", "mustard": "#D5AD00",
@@ -170,31 +173,41 @@ BRAND = {
     "light_blue": "#A2CCEE", "light_coral": "#F7BAAA", "light_purple": "#B1A8D3",
     "light_green": "#C0DFC3", "light_mustard": "#EBD592",
     "grey": "#A8B6BF", "light_grey": "#D1DADF",
-    "text_grey": "#586C76",     # заголовки, подписи к графикам
-    "text": "#000000",
 }
-# Порядок добавления цветов на «простых» графиках (брендбук, 1.9).
+# Порядок добавления цветов на графиках (брендбук, 1.9).
 PALETTE_SIMPLE = [BRAND[k] for k in (
     "navy", "magenta", "beige", "blue", "grey_blue", "pink", "light_beige", "light_blue",
     "coral", "purple", "green", "mustard", "light_coral", "light_purple", "light_green",
     "light_mustard",
 )]
-FONT_TITLE = "Arial"
-FONT_TEXT = "Times New Roman"
+FONT = "Arial"
+FONT_SIZE = 10                          # подписи осей, легенда, таблицы
+TITLE_SIZE = 12                         # заголовки графиков
+AXIS_COLOR = "#000000"
 CHART_BACKGROUND = "#FFFFFF"
 CHART_GRIDLINES = False
-CHART_SIZE = (880, 430)                 # ширина и высота графиков в пикселях
-DATE_AXIS_FORMAT = "[$-419]mmm yy"      # «янв 24» при любом языке Excel
+CHART_SIZE = (950, 480)                 # ширина и высота графиков в пикселях
+COLUMN_GAP = 20                         # боковой зазор между столбцами, %
+DATE_AXIS_FORMAT = "[$-419]mmm yy"      # «янв. 24» при любом языке Excel
 
-# Базовая инфляция на графиках: оттенки розового, отличаются типом линии/маркера.
-CORE_STYLES = {
-    "vol": (BRAND["magenta"], "solid", "circle"),
-    "trim": (BRAND["pink"], "solid", "square"),
-    "ex1": (BRAND["magenta"], "dash", "diamond"),
-    "ex2": (BRAND["pink"], "dash", "triangle"),
-}
 HEADLINE_COLOR = BRAND["navy"]
 HEADLINE_NSA_COLOR = BRAND["grey"]
+CORE_BAND_COLOR = BRAND["pink"]         # диапазон базовой инфляции
+CORE_BAND_TRANSPARENCY = 40             # прозрачность заливки диапазона, %
+# Точки SAAR базовой инфляции: цвет и форма маркера.
+CORE_SAAR_MARKERS = {
+    "vol": (BRAND["magenta"], "circle"),
+    "trim": (BRAND["pink"], "square"),
+    "ex1": (BRAND["magenta"], "diamond"),
+    "ex2": (BRAND["pink"], "triangle"),
+}
+CURRENT_YEAR_COLOR = BRAND["magenta"]
+PREVIOUS_YEAR_COLOR = BRAND["navy"]
+PALE_YEAR_COLORS = [BRAND[k] for k in ("light_blue", "light_purple", "light_green",
+                                       "light_mustard", "light_beige", "light_coral")]
+# Матрица: последние 3 месяца, остальной текущий год, прошлые годы.
+MATRIX_COLORS = (BRAND["magenta"], BRAND["navy"], BRAND["light_grey"])
+MATRIX_LABEL_COLORS = (BRAND["magenta"], BRAND["navy"], BRAND["grey"])
 
 # =============================================================================
 #                        ДАЛЕЕ — КОД (менять не нужно)
@@ -206,20 +219,23 @@ from typing import Iterable
 import difflib
 import math
 import re
+import textwrap
 
 import numpy as np
 import pandas as pd
 
 
+MM, YY = "м./м.", "г./г."
 MONTHS_SHORT = {1: "янв", 2: "фев", 3: "мар", 4: "апр", 5: "май", 6: "июн",
                 7: "июл", 8: "авг", 9: "сен", 10: "окт", 11: "ноя", 12: "дек"}
+MONTHS_EXCEL = {1: "янв.", 2: "февр.", 3: "март", 4: "апр.", 5: "май", 6: "июнь",
+                7: "июль", 8: "авг.", 9: "сент.", 10: "окт.", 11: "нояб.", 12: "дек."}
 MONTHS_NOM = {1: "январь", 2: "февраль", 3: "март", 4: "апрель", 5: "май", 6: "июнь",
               7: "июль", 8: "август", 9: "сентябрь", 10: "октябрь", 11: "ноябрь",
               12: "декабрь"}
-MONTHS_DAT = {1: "январю", 2: "февралю", 3: "марту", 4: "апрелю", 5: "маю", 6: "июню",
-              7: "июлю", 8: "августу", 9: "сентябрю", 10: "октябрю", 11: "ноябрю",
-              12: "декабрю"}
 CORE_KEYS = ["vol", "trim", "ex1", "ex2"]
+TOP_CODES = ("ПР", "НЕПР", "У")
+TOP_TITLES = {"ПР": "продовольственные", "НЕПР": "непродовольственные", "У": "услуги"}
 
 
 # =============================================================================
@@ -312,7 +328,7 @@ def _excel_col_name(position: int) -> str:
 
 @dataclass
 class InflationInput:
-    values: pd.DataFrame        # индексы м/м (пред. месяц = 100): месяцы × категории
+    values: pd.DataFrame        # индексы м./м. (пред. месяц = 100): месяцы × категории
     meta: pd.DataFrame          # разметка категорий (строки над весами)
     flags: dict                 # ключ флага → название строки на листе «Данные»
     weights: pd.DataFrame       # годовые веса, развернутые по месяцам
@@ -320,6 +336,7 @@ class InflationInput:
     sa_values: pd.DataFrame     # SA-индексы крупных категорий (те же id столбцов)
     cols: dict                  # id ключевых столбцов (хедлайн и т.д.)
     latest: pd.Timestamp        # последний месяц с данными по хедлайну
+    sa_notes: list = field(default_factory=list)
 
 
 def load_input(path: Path) -> InflationInput:
@@ -416,9 +433,10 @@ def load_input(path: Path) -> InflationInput:
         raise ValueError("В колонке хедлайна нет данных.")
 
     sa_values = _load_sa_sheet(sa_raw, meta, grid)
+    sa_notes = _complete_sa_structure(meta, weights, list(sa_values.columns), cols)
     return InflationInput(values=values, meta=meta, flags=flags, weights=weights,
                           weight_rows=weight_rows, sa_values=sa_values, cols=cols,
-                          latest=latest)
+                          latest=latest, sa_notes=sa_notes)
 
 
 def _load_sa_sheet(raw: pd.DataFrame | None, meta: pd.DataFrame, grid: pd.DatetimeIndex) -> pd.DataFrame:
@@ -454,6 +472,57 @@ def _load_sa_sheet(raw: pd.DataFrame | None, meta: pd.DataFrame, grid: pd.Dateti
             print(f'⚠️ Категории с SA = 1 отсутствуют на листе "{SA_SHEET}": '
                   f'{meta.loc[lost, "name"].tolist()}')
     return pd.DataFrame(series, index=grid, dtype=float)
+
+
+def _complete_sa_structure(meta: pd.DataFrame, weights: pd.DataFrame, sa_cols: list,
+                           cols: dict) -> list:
+    """
+    Служебные SA-категории («Прочие ... (для SA)») — остатки групп, нужные только
+    для сезонного сглаживания (как агрегаты «АГ»): группы на листе «Данные» у них
+    нет, в детальную корзину и топ-5 они не входят. Но SA-хедлайн собирается из
+    крупных категорий вместе с ними, поэтому каждая SA-категория относится к своей
+    группе (ПР / НЕПР / У):
+      • группа берется из кода, а если кода нет — по блоку на листе SA (как в
+        формулах «SA Продовольственые товары» и др., где «Прочие» замыкают блок);
+      • если у служебной категории нет веса, он считается как остаток группы:
+        вес группы минус веса остальных SA-категорий группы (как на листе
+        «Расчет прочих»).
+    """
+    notes = []
+    tokens = meta["tokens"].to_dict()
+    group = {}
+    for c in sa_cols:
+        found = [g for g in TOP_CODES if g in tokens[c]]
+        group[c] = found[0] if len(found) == 1 else None
+    for k, c in enumerate(sa_cols):
+        if group[c] is not None:
+            continue
+        before = [group[x] for x in sa_cols[:k] if group[x]]
+        after = [group[x] for x in sa_cols[k + 1:] if group[x]]
+        g = before[-1] if before else (after[0] if after else None)
+        if g is None:
+            continue
+        group[c] = g
+        tokens[c] = tokens[c] | {g}
+        notes.append(f"«{meta.at[c, 'name']}» без кода группы → {g} (по блоку листа SA)")
+    meta["tokens"] = pd.Series([tokens[i] for i in meta.index], index=meta.index, dtype=object)
+    meta["sa_group"] = pd.Series([group.get(i) for i in meta.index], index=meta.index, dtype=object)
+    meta["sa_service"] = pd.Series(
+        [i in group and _is_na(meta.at[i, "group"]) for i in meta.index], index=meta.index)
+
+    total = {"ПР": cols.get("food"), "НЕПР": cols.get("nonfood"), "У": cols.get("services")}
+    for c in sa_cols:
+        g = group[c]
+        if not meta.at[c, "sa_service"] or g is None or total.get(g) is None:
+            continue
+        missing = weights[c].isna()
+        if not missing.any():
+            continue
+        others = [x for x in sa_cols if x != c and group[x] == g]
+        remainder = weights[total[g]] - weights[others].sum(axis=1, min_count=1)
+        weights.loc[missing, c] = remainder[missing]
+        notes.append(f"«{meta.at[c, 'name']}» без веса → остаток группы {g}")
+    return notes
 
 
 def find_column(meta: pd.DataFrame, aliases: Iterable[str], *, required: bool = True) -> int | None:
@@ -492,25 +561,25 @@ def find_category(meta: pd.DataFrame, name: str) -> int | None:
 
 
 def yoy_from_mm(mm):
-    """Г/г из цепочки м/м (%): произведение 12 последовательных месячных индексов."""
+    """Г./г. из цепочки м./м. (%): произведение 12 последовательных месячных индексов."""
     log_factor = np.log1p(mm.astype(float) / 100.0)
     return np.expm1(log_factor.rolling(12, min_periods=12).sum()) * 100.0
 
 
 def saar_from_mm(mm):
-    """SAAR: м/м в годовом выражении."""
+    """SAAR: м./м. в годовом выражении."""
     return ((1.0 + mm / 100.0) ** 12 - 1.0) * 100.0
 
 
 def saar_3m(mm):
-    """SAAR 3м/3м: прирост за последние 3 месяца в годовом выражении."""
+    """SAAR 3м./3м.: прирост за последние 3 месяца в годовом выражении."""
     log_factor = np.log1p(mm.astype(float) / 100.0)
     return np.expm1(log_factor.rolling(3, min_periods=3).sum() * 4.0) * 100.0
 
 
 def laspeyres_weights(inp: InflationInput, cols) -> pd.DataFrame:
     """
-    Веса для агрегирования м/м по схеме Росстата (цепной индекс Ласпейреса).
+    Веса для агрегирования м./м. по схеме Росстата (цепной индекс Ласпейреса).
 
     Вес категории в месяце t = годовой вес × накопленный с декабря прошлого года
     индекс категории по месяц t-1 — так же, как на листе «Расчет прочих».
@@ -526,7 +595,7 @@ def laspeyres_weights(inp: InflationInput, cols) -> pd.DataFrame:
 
 
 def weighted_mm(mm: pd.DataFrame, ew: pd.DataFrame) -> pd.Series:
-    """Взвешенное среднее м/м по доступным в каждом месяце категориям."""
+    """Взвешенное среднее м./м. по доступным в каждом месяце категориям."""
     w = ew.where(mm.notna() & (ew > 0))
     return (mm * w).sum(axis=1, min_count=1) / w.sum(axis=1, min_count=1)
 
@@ -536,25 +605,6 @@ def detailed_coverage(inp: InflationInput) -> pd.Series:
     cols0 = inp.meta.index[inp.meta["group"].eq("0")]
     w = inp.weights[cols0].where(inp.values[cols0].notna())
     return w.sum(axis=1, min_count=1)
-
-
-def level_from_mm(mm: pd.Series) -> pd.Series:
-    """
-    Уровень цен из цепочки м/м. За месяц до первого наблюдения уровень = 1.
-    После пропуска внутри ряда уровень не определен (NaN).
-    """
-    s = mm.astype(float)
-    first = s.first_valid_index()
-    if first is None:
-        return s * np.nan
-    s = s.loc[first:]
-    broken = s.isna().cumsum() > 0
-    level = (1.0 + s.fillna(0.0) / 100.0).cumprod()
-    level[broken] = np.nan
-    before = first - pd.DateOffset(months=1)
-    if before in mm.index:
-        level = pd.concat([pd.Series([1.0], index=[before]), level])
-    return level.reindex(mm.index)
 
 
 def ytd_by_year(mm: pd.Series) -> pd.DataFrame:
@@ -573,13 +623,12 @@ def ytd_by_year(mm: pd.Series) -> pd.DataFrame:
     return table
 
 
-def base_date(latest: pd.Timestamp) -> pd.Timestamp:
-    month = int(CUMULATIVE_BASE_MONTH)
-    if month == 0:
-        return pd.Timestamp(latest.year - 1, 12, 1)
-    if 1 <= month <= 12:
-        return pd.Timestamp(latest.year, month, 1)
-    raise ValueError("CUMULATIVE_BASE_MONTH: 0 (декабрь прошлого года) или 1–12.")
+def ytd_table(mm: pd.Series) -> pd.DataFrame:
+    """Таблица для листа: «Месяц» + столбцы-годы (накопленная с начала года, %)."""
+    table = ytd_by_year(mm)
+    table.columns = [str(c) for c in table.columns]
+    table.insert(0, "Месяц", [MONTHS_SHORT[m] for m in table.index])
+    return table.reset_index(drop=True)
 
 
 # =============================================================================
@@ -673,7 +722,7 @@ class Basis:
     kind: str                   # "SA" или "nSA"
     title: str                  # подпись для графиков и сообщений
     cols: list
-    mm: pd.DataFrame            # м/м, %
+    mm: pd.DataFrame            # м./м., %
     ew: pd.DataFrame            # веса Ласпейреса
     tokens: pd.Series
     names: pd.Series
@@ -703,7 +752,7 @@ def make_basis(inp: InflationInput, kind: str, coverage: pd.Series) -> Basis:
 def core_labels() -> dict:
     return {
         "vol": f"без {CORE_VOLATILITY_SHARE * 100:.0f}% наиболее волатильных",
-        "trim": f"усечение {CORE_TRIM_LOW * 100:.0f}%/{CORE_TRIM_HIGH * 100:.0f}%",
+        "trim": "усечение",
         "ex1": "исключение",
         "ex2": "исключение, без туризма",
     }
@@ -712,7 +761,7 @@ def core_labels() -> dict:
 def weighted_trimmed_mean(x: np.ndarray, w: np.ndarray, low: float, high: float) -> tuple[float, np.ndarray]:
     """
     Взвешенное усеченное среднее: отрезаются доли low и high накопленного веса
-    снизу и сверху распределения м/м. Категория на границе входит частично.
+    снизу и сверху распределения м./м. Категория на границе входит частично.
     Возвращает значение и эффективные веса (в исходном порядке).
     """
     order = np.argsort(x, kind="mergesort")
@@ -729,12 +778,13 @@ def weighted_trimmed_mean(x: np.ndarray, w: np.ndarray, low: float, high: float)
 
 def core_measures(basis: Basis, latest: pd.Timestamp) -> tuple[pd.DataFrame, dict]:
     """
-    Четыре меры базовой инфляции (м/м, %) и диагностика на последнюю дату.
+    Четыре меры базовой инфляции (м./м., %) и диагностика на последнюю дату.
 
     1) Без 20% наиболее волатильных: в каждом месяце t по окну из последних
-       CORE_VOLATILITY_WINDOW месяцев (t включительно) считается дисперсия м/м
+       CORE_VOLATILITY_WINDOW месяцев (t включительно) считается дисперсия м./м.
        каждой категории; исключаются 20% категорий с наибольшей дисперсией.
        Категории без полного окна (новые) не ранжируются и остаются в корзине.
+       Поэтому ряд начинается на (окно − 1) месяца позже начала данных.
     2) Усечение: взвешенное среднее без 10% веса снизу и 10% сверху.
     3) Исключение: без категорий с кодами CORE_EXCLUDE_CODES.
     4) Исключение без туризма: дополнительно без CORE_EXCLUDE_TOURISM_CODES.
@@ -753,6 +803,7 @@ def core_measures(basis: Basis, latest: pd.Timestamp) -> tuple[pd.DataFrame, dic
     out = np.full((len(basis.mm), 4), np.nan)
     diag: dict = {}
     names = basis.names.to_numpy()
+    tokens = basis.tokens.to_numpy()
     p_latest = basis.mm.index.get_loc(latest) if latest in basis.mm.index else None
 
     for p in range(len(basis.mm)):
@@ -765,6 +816,7 @@ def core_measures(basis: Basis, latest: pd.Timestamp) -> tuple[pd.DataFrame, dic
             return float((x[mask] * w[mask]).sum() / w[mask].sum()) if mask.any() else np.nan
 
         # 1) Без наиболее волатильных.
+        dropped, dropped_std, n_eligible = np.array([], dtype=int), np.array([]), 0
         if p >= window - 1:
             idx = np.flatnonzero(cur)
             hist = values[p - window + 1:p + 1, idx]
@@ -772,7 +824,8 @@ def core_measures(basis: Basis, latest: pd.Timestamp) -> tuple[pd.DataFrame, dic
             eligible = idx[full]
             variance = hist[:, full].var(axis=0, ddof=1)
             n_drop = math.ceil(round(CORE_VOLATILITY_SHARE * len(eligible), 9))
-            dropped = eligible[np.argsort(-variance, kind="mergesort")[:n_drop]]
+            top = np.argsort(-variance, kind="mergesort")[:n_drop]
+            dropped, dropped_std, n_eligible = eligible[top], np.sqrt(variance[top]), len(eligible)
             keep_vol = cur.copy()
             keep_vol[dropped] = False
             out[p, 0] = wmean(keep_vol)
@@ -788,23 +841,26 @@ def core_measures(basis: Basis, latest: pd.Timestamp) -> tuple[pd.DataFrame, dic
             order = np.argsort(x[cur], kind="mergesort")
             median_x = x[cur][order][np.searchsorted(np.cumsum(share[order]), 0.5)]
             cur_names = names[cur]
+            total_w = w[cur].sum()
+
+            def excluded(keep):
+                mask = cur & ~keep
+                return [(n, ww / total_w * 100, t) for n, ww, t in zip(names[mask], w[mask], tokens[mask])]
+
             diag = {
-                "vol_dropped": list(names[dropped]) if p >= window - 1 else [],
-                "vol_eligible": int(len(eligible)) if p >= window - 1 else 0,
+                "vol_dropped": list(zip(names[dropped], dropped_std)),
+                "vol_eligible": n_eligible,
                 "trim_low": sorted([(n, v) for n, v, t in zip(cur_names, x[cur], trimmed_share)
                                     if t > 1e-9 and v <= median_x], key=lambda item: item[1]),
                 "trim_high": sorted([(n, v) for n, v, t in zip(cur_names, x[cur], trimmed_share)
                                      if t > 1e-9 and v > median_x], key=lambda item: -item[1]),
-                "ex1": list(names[cur & ~keep1]),
-                "ex2": list(names[cur & ~keep2]),
-                "ex1_share": float(w[cur & ~keep1].sum() / w[cur].sum() * 100),
-                "ex2_share": float(w[cur & ~keep2].sum() / w[cur].sum() * 100),
+                "ex1": excluded(keep1),
+                "ex2": excluded(keep2),
                 "n": int(cur.sum()),
             }
 
     result = pd.DataFrame(out, index=basis.mm.index, columns=CORE_KEYS)
-    missing_ex = sorted(c for c in ex2 if not _has_any_code(basis.tokens, {c}).any())
-    diag["codes_not_found"] = missing_ex
+    diag["codes_not_found"] = sorted(c for c in ex2 if not _has_any_code(basis.tokens, {c}).any())
     return result, diag
 
 
@@ -838,23 +894,50 @@ def _cut(df: pd.DataFrame, latest: pd.Timestamp) -> pd.DataFrame:
     return df.loc[first:] if first is not None and not pd.isna(first) else df.iloc[0:0]
 
 
-def calc_main(inp, hl_mm, hl_sa_mm, core, basis) -> tuple[pd.DataFrame, dict]:
+def main_columns(kind: str) -> dict:
+    """Названия столбцов листа 1 (используются и в таблице, и в графиках)."""
     labels = core_labels()
-    tag = basis.kind
-    table = {"Хедлайн nSA, м/м, %": hl_mm, "Хедлайн SA, м/м, %": hl_sa_mm}
+    return {
+        "hl_nsa": f"Хедлайн nSA, {MM}, %",
+        "hl_sa": f"Хедлайн SA, {MM}, %",
+        "core_mm": {k: f"Базовая {kind}: {labels[k]}, {MM}, %" for k in CORE_KEYS},
+        "core_mm_min": f"Базовая {kind}: мин., {MM}, %",
+        "core_mm_max": f"Базовая {kind}: макс., {MM}, %",
+        "hl_yoy": f"Хедлайн, {YY}, %",
+        "core_yoy": {k: f"Базовая: {labels[k]}, {YY}, %" for k in CORE_KEYS},
+        "core_yoy_min": f"Базовая: мин., {YY}, %",
+        "core_yoy_max": f"Базовая: макс., {YY}, %",
+        "hl_saar": "Хедлайн SAAR, %",
+        "core_saar": {k: f"Базовая: {labels[k]}, SAAR, %" for k in CORE_KEYS},
+        "hl_saar3": "Хедлайн SAAR 3м./3м., %",
+        "band_mm": f"Для графика: ширина диапазона базовой {MM} (макс. − мин.), п.п.",
+        "band_yoy": f"Для графика: ширина диапазона базовой {YY} (макс. − мин.), п.п.",
+    }
+
+
+def calc_main(inp, hl_mm, hl_sa_mm, core, basis) -> tuple[pd.DataFrame, dict]:
+    c = main_columns(basis.kind)
+    core_yoy = core.apply(yoy_from_mm)
+    table = {c["hl_nsa"]: hl_mm, c["hl_sa"]: hl_sa_mm}
     for k in CORE_KEYS:
-        table[f"Базовая {tag}: {labels[k]}, м/м, %"] = core[k]
-    table["Хедлайн, г/г, %"] = yoy_from_mm(hl_mm)
+        table[c["core_mm"][k]] = core[k]
+    table[c["core_mm_min"]] = core.min(axis=1)
+    table[c["core_mm_max"]] = core.max(axis=1)
+    table[c["hl_yoy"]] = yoy_from_mm(hl_mm)
     for k in CORE_KEYS:
-        table[f"Базовая: {labels[k]}, г/г, %"] = yoy_from_mm(core[k])
-    table["Хедлайн SAAR, %"] = saar_from_mm(hl_sa_mm)
+        table[c["core_yoy"][k]] = core_yoy[k]
+    table[c["core_yoy_min"]] = core_yoy.min(axis=1)
+    table[c["core_yoy_max"]] = core_yoy.max(axis=1)
+    table[c["hl_saar"]] = saar_from_mm(hl_sa_mm)
     if basis.kind == "SA":
         for k in CORE_KEYS:
-            table[f"Базовая: {labels[k]}, SAAR, %"] = saar_from_mm(core[k])
-    table["Хедлайн SAAR 3м/3м, %"] = saar_3m(hl_sa_mm)
+            table[c["core_saar"][k]] = saar_from_mm(core[k])
+    table[c["hl_saar3"]] = saar_3m(hl_sa_mm)
+    table[c["band_mm"]] = core.max(axis=1) - core.min(axis=1)
+    table[c["band_yoy"]] = core_yoy.max(axis=1) - core_yoy.min(axis=1)
     df = _cut(pd.DataFrame(table), inp.latest)
     df.insert(0, "Дата", df.index)
-    return df.reset_index(drop=True), {"labels": labels, "kind": basis.kind, "title": basis.title}
+    return df.reset_index(drop=True), {"kind": basis.kind, "title": basis.title, "columns": c}
 
 
 def quarter_gapped(df: pd.DataFrame) -> pd.DataFrame:
@@ -868,6 +951,9 @@ def quarter_gapped(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows[:-1], columns=["Квартал", "Месяц", "Дата", *df.columns])
 
 
+ZERO_COLUMN = "Ноль (служебный ряд: линия оси на графике)"
+
+
 def calc_contributions(inp, basis, hl_mm, hl_sa_mm) -> tuple[pd.DataFrame, dict]:
     assign, names = assign_components(inp, CONTRIBUTIONS, basis.cols)
     unassigned = assign.index[assign < 0]
@@ -875,8 +961,9 @@ def calc_contributions(inp, basis, hl_mm, hl_sa_mm) -> tuple[pd.DataFrame, dict]
         w_last = basis.ew.loc[inp.latest, unassigned]
         share = float(w_last.sum() / basis.ew.loc[inp.latest].sum() * 100)
         print(f"⚠️ Вклады: {len(unassigned)} кат. ({share:.1f}% веса) не попали ни в один компонент "
-              f"и показаны как «Не распределено»: {inp.meta.loc[unassigned[:8], 'name'].tolist()}"
-              f"{' …' if len(unassigned) > 8 else ''}")
+              f"и показаны отдельно как «Не распределено»: "
+              f"{inp.meta.loc[unassigned[:8], 'name'].tolist()}{' …' if len(unassigned) > 8 else ''}. "
+              f"Добавьте компонент {{\"остальное\": True}} или заполните разметку.")
         assign[unassigned] = len(names)
         names = names + ["Не распределено"]
 
@@ -894,48 +981,31 @@ def calc_contributions(inp, basis, hl_mm, hl_sa_mm) -> tuple[pd.DataFrame, dict]
         parts[f"Вклад: {name}, п.п."] = (mm[cols_k] * w[cols_k]).sum(axis=1, min_count=1) / denominator
 
     if basis.kind == "SA":
-        line_name, line = "Хедлайн SA, м/м, %", hl_sa_mm
+        line_name, line = f"Хедлайн SA, {MM}, %", hl_sa_mm
     else:
-        line_name, line = "Хедлайн nSA, м/м, %", hl_mm
+        line_name, line = f"Хедлайн nSA, {MM}, %", hl_mm
     table = pd.DataFrame({line_name: line, **parts})
     residual = line - pd.DataFrame(parts).sum(axis=1, min_count=1)
     if residual.abs().max() > 0.005:
         table["Расхождение с хедлайном, п.п."] = residual
     table = _cut(table.loc[denominator.dropna().index.min():], inp.latest)
+    gapped = quarter_gapped(table)
+    gapped[ZERO_COLUMN] = 0.0
     info = {"line": line_name, "components": [c for c in table.columns if c != line_name],
             "basis": basis}
-    return quarter_gapped(table), info
+    return gapped, info
 
 
-def resolve_series(inp: InflationInput, name: str, derived: dict) -> pd.Series | None:
-    lookup = {normalize_text(k): k for k in derived}
-    if normalize_text(name) in lookup:
-        return derived[lookup[normalize_text(name)]]
-    cid = find_category(inp.meta, name)
-    return None if cid is None else inp.values[cid] - 100.0
+def calc_cumulative(inp, hl_mm) -> tuple[pd.DataFrame, dict]:
+    table = ytd_table(hl_mm.loc[:inp.latest])
+    current = str(inp.latest.year)
+    previous = str(inp.latest.year - 1)
+    pale = [str(inp.latest.year - k) for k in range(2, 2 + int(CUMULATIVE_PALE_YEARS))]
+    pale = [y for y in pale if y in table.columns]
+    return table, {"current": current, "previous": previous, "pale": pale}
 
 
-def calc_cumulative(inp, hl_mm, derived) -> tuple[pd.DataFrame, dict]:
-    base = base_date(inp.latest)
-    base_label = f"{MONTHS_DAT[base.month]} {base.year} г."
-    series = {"Хедлайн": hl_mm}
-    for name in CUMULATIVE_EXTRA_SERIES:
-        s = resolve_series(inp, name, derived)
-        if s is not None:
-            series[name] = s
-    table = {}
-    for name, mm in series.items():
-        level = level_from_mm(mm)
-        if base not in level.index or pd.isna(level.get(base)):
-            print(f"⚠️ Накопленная: у ряда «{name}» нет данных за базовый месяц ({base:%m.%Y}).")
-            continue
-        table[f"{name}, % к {base_label}"] = (level / level.loc[base] - 1.0) * 100.0
-    df = _cut(pd.DataFrame(table), inp.latest)
-    df.insert(0, "Дата", df.index)
-    return df.reset_index(drop=True), {"base": base, "base_label": base_label}
-
-
-def calc_split(inp, coverage) -> tuple[pd.DataFrame, dict, dict]:
+def calc_split(inp, coverage) -> tuple[pd.DataFrame, dict]:
     key = flag_key(SPLIT_FLAG)
     if key not in inp.flags:
         raise KeyError(f"Флаг «{SPLIT_FLAG}» не найден. Доступны: {list(inp.flags.values())}")
@@ -947,8 +1017,8 @@ def calc_split(inp, coverage) -> tuple[pd.DataFrame, dict, dict]:
     s0 = weighted_mm(basis.mm[cols0], basis.ew[cols0])
     n1, n0 = SPLIT_NAMES
     table = pd.DataFrame({
-        f"{n1}, м/м, %": s1, f"{n0}, м/м, %": s0,
-        f"{n1}, г/г, %": yoy_from_mm(s1), f"{n0}, г/г, %": yoy_from_mm(s0),
+        f"{n1}, {MM}, %": s1, f"{n0}, {MM}, %": s0,
+        f"{n1}, {YY}, %": yoy_from_mm(s1), f"{n0}, {YY}, %": yoy_from_mm(s0),
     })
     df = _cut(table, inp.latest)
     df.insert(0, "Дата", df.index)
@@ -960,7 +1030,7 @@ def calc_split(inp, coverage) -> tuple[pd.DataFrame, dict, dict]:
         share = basis.ew.loc[inp.latest, unflagged].sum() / basis.ew.loc[inp.latest, active].sum() * 100
         print(f"⚠️ {n1}/{n0.lower()}: у {int(unflagged.sum())} детальных категорий "
               f"({share:.2f}% веса) не заполнен флаг «{inp.flags[key]}».")
-    return df.reset_index(drop=True), {"names": SPLIT_NAMES}, {n1: s1, n0: s0}
+    return df.reset_index(drop=True), {"names": SPLIT_NAMES}
 
 
 def weighted_dispersion(mm: pd.DataFrame, ew: pd.DataFrame, kind: str) -> pd.Series:
@@ -995,9 +1065,9 @@ def calc_matrix(inp, basis, hl_mm, hl_sa_mm) -> tuple[pd.DataFrame, dict]:
     last3 = df.index[-3:]
     tier = np.where(df.index.isin(last3), 0, np.where(df.index.year == inp.latest.year, 1, 2))
     tier_names = ["Последние 3 месяца", f"Ранее в {inp.latest.year} г.", "Предыдущие годы"]
-    disp_name = ("Разброс м/м по корзине (станд. откл.), п.п." if kind == "std"
-                 else "Разброс м/м по корзине (межкварт. размах), п.п.")
-    infl_name = "Хедлайн SA, м/м, %" if basis.kind == "SA" else "Хедлайн nSA, м/м, %"
+    disp_name = (f"Разброс {MM} по корзине (станд. откл.), п.п." if kind == "std"
+                 else f"Разброс {MM} по корзине (межкварт. размах), п.п.")
+    infl_name = f"Хедлайн SA, {MM}, %" if basis.kind == "SA" else f"Хедлайн nSA, {MM}, %"
     table = pd.DataFrame({
         "Дата": df.index,
         "Метка": [f"{MONTHS_SHORT[d.month]}.{d.year % 100:02d}" for d in df.index],
@@ -1016,7 +1086,7 @@ def calc_matrix(inp, basis, hl_mm, hl_sa_mm) -> tuple[pd.DataFrame, dict]:
 
 
 def calc_top(inp: InflationInput) -> dict:
-    """Топ-N по м/м, г/г и вкладу в хедлайн на последнюю дату (вклады — по весам Ласпейреса)."""
+    """Топ-N по м./м., г./г. и вкладу в хедлайн на последнюю дату (вклады — по весам Ласпейреса)."""
     latest = inp.latest
     all_cols = inp.meta.index
     mm = inp.values - 100.0
@@ -1027,7 +1097,7 @@ def calc_top(inp: InflationInput) -> dict:
     top: dict = {}
     for group in TOP_GROUPS:
         group_cols = all_cols[inp.meta["group"].eq(str(group))]
-        metrics = {"м/м, %": mm.loc[latest, group_cols], "г/г, %": yoy.loc[group_cols],
+        metrics = {f"{MM}, %": mm.loc[latest, group_cols], f"{YY}, %": yoy.loc[group_cols],
                    "Вклад в хедлайн, п.п.": contrib.loc[group_cols]}
         top[group] = {}
         for metric, series in metrics.items():
@@ -1044,19 +1114,17 @@ def calc_category(inp: InflationInput, name: str) -> dict | None:
     if cid is None:
         return None
     mm = (inp.values[cid] - 100.0).loc[:inp.latest]
-    table = _cut(pd.DataFrame({"м/м, %": mm, "г/г, %": yoy_from_mm(mm)}), inp.latest)
+    table = _cut(pd.DataFrame({f"{MM}, %": mm, f"{YY}, %": yoy_from_mm(mm)}), inp.latest)
     if table.empty:
         print(f"⚠️ У категории «{name}» нет данных.")
         return None
     table.insert(0, "Дата", table.index)
-    ytd = ytd_by_year(mm)
-    if str(inp.latest.year) not in {str(c) for c in ytd.columns}:
+    ytd = ytd_table(mm)
+    if str(inp.latest.year) not in ytd.columns:
         print(f"ℹ️ «{name}»: накопленная с начала {inp.latest.year} г. не считается — "
               f"нет данных за январь или ряд прерывается.")
-    ytd.columns = [str(c) for c in ytd.columns]
-    ytd.insert(0, "Месяц", [MONTHS_SHORT[m] for m in ytd.index])
     return {"name": str(inp.meta.loc[cid, "name"]), "table": table.reset_index(drop=True),
-            "ytd": ytd.reset_index(drop=True), "current_year": str(inp.latest.year)}
+            "ytd": ytd, "current_year": str(inp.latest.year)}
 
 
 def calculate_report(inp: InflationInput) -> ReportData:
@@ -1085,14 +1153,8 @@ def calculate_report(inp: InflationInput) -> ReportData:
 
     main, main_info = calc_main(inp, hl_mm, hl_sa_mm, core, core_basis)
     contrib, contrib_info = calc_contributions(inp, basis_for(CONTRIBUTIONS_BASIS), hl_mm, hl_sa_mm)
-    split, split_info, split_series = calc_split(inp, coverage)
-
-    labels = core_labels()
-    derived = {"Хедлайн SA": hl_sa_mm, **split_series}
-    derived.update({f"Базовая: {labels[k]}": core[k] for k in CORE_KEYS})
-    print("Ряды, доступные для накопленной инфляции (кроме столбцов листа «Данные»): "
-          + "; ".join(f"«{k}»" for k in derived))
-    cumulative, cumulative_info = calc_cumulative(inp, hl_mm, derived)
+    split, split_info = calc_split(inp, coverage)
+    cumulative, cumulative_info = calc_cumulative(inp, hl_mm)
     matrix, matrix_info = calc_matrix(inp, basis_for(MATRIX_BASIS), hl_mm, hl_sa_mm)
     top_data = calc_top(inp)
     categories = [c for c in (calc_category(inp, n) for n in SELECTED_CATEGORIES) if c]
@@ -1112,6 +1174,39 @@ def calculate_report(inp: InflationInput) -> ReportData:
 # =============================================================================
 # 6. ПРОВЕРКИ — ПЕЧАТАЮТСЯ В JUPYTER / КОНСОЛЬ
 # =============================================================================
+
+
+def code_mismatches(meta: pd.DataFrame) -> list:
+    """
+    Детальные категории (группа 0), у которых нет кода исключения (РУ, ПО, ВТ…),
+    который есть у ближайшей родительской группы с такими кодами. Иерархия
+    восстанавливается по порядку столбцов и уровням группы (1, 11, 111, …).
+    """
+    special = {c.upper() for c in CORE_EXCLUDE_CODES + CORE_EXCLUDE_TOURISM_CODES}
+    stack, out = [], []
+    for i in meta.index:
+        g = meta.at[i, "group"]
+        if _is_na(g):
+            stack = []
+            continue
+        if g == "0":
+            leaf = meta.at[i, "tokens"] & special
+            for _, parent in reversed(stack):
+                parent_codes = meta.at[parent, "tokens"] & special
+                if parent_codes:
+                    if parent_codes - leaf:
+                        out.append((i, parent, sorted(parent_codes - leaf)))
+                    break
+        elif set(g) == {"1"}:
+            while stack and stack[-1][0] >= len(g):
+                stack.pop()
+            stack.append((len(g), i))
+    return out
+
+
+def _wrap(items: list[str], indent: str = "       ") -> str:
+    return textwrap.fill(", ".join(items), width=110, initial_indent=indent,
+                         subsequent_indent=indent)
 
 
 def print_checks(inp, coverage, hl_mm, hl_sa_mm, sa_basis, core_basis, core_diag) -> None:
@@ -1146,7 +1241,8 @@ def print_checks(inp, coverage, hl_mm, hl_sa_mm, sa_basis, core_basis, core_diag
             print(f"   {status} {titles[key]:<27} {latest:%m.%Y}: Росстат {inp.values.at[latest, cid] - 100:+.2f}%, "
                   f"расчет {rebuilt.get(latest, np.nan):+.2f}%, расхождение {last:+.3f} п.п.; "
                   f"в среднем с {start:%m.%Y}: {error.abs().mean():.3f} п.п.")
-        print(f"   Допуск ±{tol:.2f} п.п. Покрытие весом на последнюю дату: {coverage.get(latest, np.nan):.1f}%.")
+        print(f"   Допуск ±{tol:.2f} п.п. {MM} Покрытие весом на последнюю дату: "
+              f"{coverage.get(latest, np.nan):.1f}%.")
         no_weight = meta.loc[group0].index[
             inp.values.loc[str(latest.year), group0].notna().any().to_numpy()
             & inp.weights.loc[latest, group0].isna().to_numpy()
@@ -1154,36 +1250,66 @@ def print_checks(inp, coverage, hl_mm, hl_sa_mm, sa_basis, core_basis, core_diag
         if len(no_weight):
             print(f"   ⚠️ Есть данные, но нет веса «Вес {latest.year}» (в расчеты не входят): "
                   f"{meta.loc[no_weight[:8], 'name'].tolist()}{' …' if len(no_weight) > 8 else ''}")
+        mismatches = code_mismatches(meta)
+        if mismatches:
+            weight = sum(inp.weights.at[latest, i] for i, _, _ in mismatches
+                         if not _is_na(inp.weights.at[latest, i]))
+            print(f"   ⚠️ Код позиции расходится с кодом ее группы — в методе исключения такие "
+                  f"позиции не исключаются ({weight:.2f}% веса в {latest.year} г.):")
+            by_parent: dict = {}
+            for i, parent, codes in mismatches:
+                by_parent.setdefault((parent, tuple(codes)), []).append(i)
+            for (parent, codes), leaves in by_parent.items():
+                print(f"     группа «{meta.at[parent, 'name']}» ({meta.at[parent, 'code']}), "
+                      f"у позиций нет {', '.join(codes)}:")
+                print(_wrap([f"{meta.at[i, 'name']} ({meta.at[i, 'code']})" for i in leaves]))
         group1 = meta.index[meta["group"].eq("1")]
         w1 = inp.weights.loc[latest, group1].sum()
         if abs(w1 - 100) > 0.5:
             print(f"   ℹ️ Сумма весов группы «1» в {latest.year} г. = {w1:.2f} (≠ 100): "
                   f"похоже, часть категорий группы 1 входит в другие категории группы 1.")
 
-    # 2) SA-хедлайн.
+    # 2) SA-хедлайн и вклады.
     if sa_basis is not None:
         print("-" * 78)
         rebuilt_sa = weighted_mm(sa_basis.mm, sa_basis.ew)
         diff = (rebuilt_sa - hl_sa_mm).loc[:latest].abs().max()
         status = "✅" if diff < 0.005 else "⚠️"
         print(f"2) {status} SA-хедлайн, пересчитанный из крупных SA-категорий, vs столбец "
-              f"«SA Все товары и услуги»: макс. расхождение {diff:.2e} п.п.")
+              f"«SA Все товары и услуги»: макс. расхождение {diff:.1e} п.п.")
+        if inp.sa_notes:
+            print("   ℹ️ Служебные SA-категории: " + "; ".join(inp.sa_notes))
+        # Вклады групп по крупным категориям vs ваши столбцы «SA Продовольственые товары» и т.д.
+        pairs = [("ПР", "food", "sa_food"), ("НЕПР", "nonfood", "sa_nonfood"), ("У", "services", "sa_services")]
+        if all(inp.cols.get(a) is not None and inp.cols.get(b) is not None for _, a, b in pairs):
+            w = sa_basis.ew.where(sa_basis.mm.notna())
+            groups = meta.loc[sa_basis.cols, "sa_group"]
+            agg_ew = laspeyres_weights(inp, [inp.cols[a] for _, a, _ in pairs])
+            worst = 0.0
+            for g, a, b in pairs:
+                own = groups.index[groups.eq(g)]
+                by_categories = (sa_basis.mm[own] * w[own]).sum(axis=1) / w.sum(axis=1)
+                by_aggregate = (agg_ew[inp.cols[a]] * (inp.values[inp.cols[b]] - 100.0)
+                                / agg_ew.sum(axis=1))
+                worst = max(worst, float((by_categories - by_aggregate).loc[:latest].abs().max()))
+            status = "✅" if worst < 0.005 else "⚠️"
+            print(f"   {status} Вклады продовольствия, непрода и услуг совпадают с расчетом по столбцам "
+                  f"«SA ...» и весам групп: макс. расхождение {worst:.1e} п.п.")
         weight_sum = inp.weights[sa_basis.cols].where(sa_basis.mm.notna()).sum(axis=1)
         bad_years = sorted({d.year for d, v in weight_sum.loc[:latest].items() if abs(v - 100) > 0.05})
         if bad_years:
             print(f"   ⚠️ Сумма весов крупных SA-категорий ≠ 100 в годах: {bad_years}")
-        sa_meta = meta.loc[sa_basis.cols]
+        sa_meta = meta.loc[[c for c in sa_basis.cols if not meta.at[c, "sa_service"]]]
         blank = {}
         for key, label in [("code", "Код"), *[(k, v) for k, v in inp.flags.items() if k != "sa"]]:
-            empty = sa_meta.index[sa_meta[key].isna()]
-            for i in empty:
+            for i in sa_meta.index[sa_meta[key].isna()]:
                 blank.setdefault(sa_meta.at[i, "name"], []).append(label)
         for name, fields in blank.items():
             print(f"   ⚠️ «{name}»: не заполнено — {', '.join(fields)}")
         yoy_gap = (yoy_from_mm(hl_sa_mm) - yoy_from_mm(hl_mm)).get(latest, np.nan)
         if abs(yoy_gap) > 0.3:
-            print(f"   ⚠️ SA-хедлайн г/г расходится с официальным г/г на {yoy_gap:+.2f} п.п. "
-                  f"— за 12 месяцев сезонные факторы должны почти погашаться. Проверьте SA-ряды.")
+            print(f"   ℹ️ SA-хедлайн {YY} отличается от официального {YY} на {yoy_gap:+.2f} п.п. "
+                  f"(так бывает при переносе сроков индексации тарифов).")
 
     # 3) Базовая инфляция.
     print("-" * 78)
@@ -1193,47 +1319,61 @@ def print_checks(inp, coverage, hl_mm, hl_sa_mm, sa_basis, core_basis, core_diag
         print(f"   ⚠️ Коды исключения не найдены ни у одной категории: {core_diag['codes_not_found']} "
               f"— эти товары/услуги НЕ исключаются.")
     if core_diag.get("n"):
-        compact = core_basis.kind == "SA"
-
-        def show(items):
-            return ", ".join(items) if compact else f"{len(items)} кат."
-
-        print(f"   • {labels['vol']}: исключено {len(core_diag['vol_dropped'])} из "
-              f"{core_diag['vol_eligible']} кат.: {show(core_diag['vol_dropped'])}")
+        dropped = core_diag["vol_dropped"]
+        print(f"   • {labels['vol'].capitalize()}: исключено {len(dropped)} из "
+              f"{core_diag['vol_eligible']} кат. (в скобках — станд. откл. {MM} за "
+              f"{CORE_VOLATILITY_WINDOW} мес., п.п.):")
+        print(_wrap([f"{n} ({s:.2f})" for n, s in dropped]))
         low = [f"{n} ({v:+.2f})" for n, v in core_diag["trim_low"]]
         high = [f"{n} ({v:+.2f})" for n, v in core_diag["trim_high"]]
-        print(f"   • {labels['trim']}: снизу — {show(low)}; сверху — {show(high)}")
-        print(f"   • {labels['ex1']}: {core_diag['ex1_share']:.1f}% веса: {show(core_diag['ex1'])}")
-        extra = [n for n in core_diag["ex2"] if n not in core_diag["ex1"]]
-        print(f"   • {labels['ex2']}: {core_diag['ex2_share']:.1f}% веса; дополнительно: {show(extra)}")
+        if core_basis.kind == "SA":
+            print(f"   • Усечение — срезаны снизу ({MM}, %):")
+            print(_wrap(low))
+            print("     сверху:")
+            print(_wrap(high))
+        else:
+            print(f"   • Усечение: срезано снизу {len(low)} кат., сверху {len(high)} кат.")
+        for key, title in [("ex1", labels["ex1"]), ("ex2", labels["ex2"])]:
+            items = core_diag[key]
+            share = sum(s for _, s, _ in items)
+            print(f"   • {title.capitalize()}: исключено {share:.1f}% веса корзины:")
+            if core_basis.kind == "SA":
+                print(_wrap([f"{n} ({s:.1f}%)" for n, s, _ in items]))
+            else:
+                codes = CORE_EXCLUDE_CODES + (CORE_EXCLUDE_TOURISM_CODES if key == "ex2" else [])
+                summary = []
+                for code in codes:
+                    sel = [(n, s) for n, s, t in items if code.upper() in t]
+                    if sel:
+                        summary.append(f"{code}: {len(sel)} кат., {sum(s for _, s in sel):.1f}%")
+                print(_wrap(summary) + "  (категория с несколькими кодами учтена в каждом)")
     print(line)
 
 
 # =============================================================================
-# 7. EXCEL: ТАБЛИЦЫ + РЕДАКТИРУЕМЫЕ ГРАФИКИ ПО БРЕНДБУКУ
+# 7. EXCEL: ТАБЛИЦЫ + РЕДАКТИРУЕМЫЕ ГРАФИКИ
 # =============================================================================
 
 
 class _Styles:
     def __init__(self, wb):
-        text = {"font_name": FONT_TEXT, "font_size": 10, "font_color": BRAND["text"]}
+        text = {"font_name": FONT, "font_size": FONT_SIZE, "font_color": AXIS_COLOR}
         self.header = wb.add_format({
-            "font_name": FONT_TITLE, "font_size": 9, "font_color": "#FFFFFF",
+            "font_name": FONT, "font_size": 9, "font_color": "#FFFFFF",
             "bg_color": BRAND["navy"], "text_wrap": True, "align": "center",
             "valign": "vcenter", "border": 1, "border_color": "#FFFFFF",
         })
         self.date = wb.add_format({**text, "num_format": "dd.mm.yyyy", "align": "left"})
         self.num = wb.add_format({**text, "num_format": "0.00"})
         self.text = wb.add_format(text)
-        self.title = wb.add_format({"font_name": FONT_TITLE, "font_size": 12,
-                                    "font_color": BRAND["text_grey"]})
-        self.section = wb.add_format({"font_name": FONT_TITLE, "font_size": 10,
+        self.title = wb.add_format({"font_name": FONT, "font_size": 12, "bold": True})
+        self.section = wb.add_format({"font_name": FONT, "font_size": FONT_SIZE,
                                       "font_color": "#FFFFFF", "bg_color": BRAND["navy"]})
-        self.subheader = wb.add_format({"font_name": FONT_TITLE, "font_size": 9,
+        self.subheader = wb.add_format({"font_name": FONT, "font_size": 9,
                                         "bg_color": BRAND["light_grey"], "align": "center",
                                         "text_wrap": True, "valign": "vcenter"})
         self.note = wb.add_format({**text, "italic": True, "font_size": 9,
-                                   "font_color": BRAND["text_grey"]})
+                                   "font_color": BRAND["grey_blue"]})
 
 
 def _write_table(ws, st: _Styles, df: pd.DataFrame, row0: int = 0, col0: int = 0,
@@ -1262,33 +1402,42 @@ def _write_table(ws, st: _Styles, df: pd.DataFrame, row0: int = 0, col0: int = 0
                 ws.write_string(row0 + i, col0 + j, str(value), st.text)
 
 
-def _font(name=FONT_TEXT, size=9, color=None, **extra) -> dict:
-    return {"name": name, "size": size, "bold": False, "color": color or BRAND["text"], **extra}
+AXIS_LINE = {"color": AXIS_COLOR, "width": 0.75}
 
 
-def _style_chart(chart, title: str, *, y_title: str | None = None, date_axis: bool = True,
-                 y_format: str = "0.0", legend: bool = True, size=CHART_SIZE) -> None:
-    axis_line = {"color": BRAND["grey"], "width": 0.75}
-    chart.set_title({"name": title, "name_font": _font(FONT_TITLE, 11, BRAND["text_grey"]),
-                     "overlay": False})
-    chart.set_legend({"position": "top", "font": _font()} if legend else {"none": True})
-    x_axis = {"num_font": _font(), "line": axis_line, "label_position": "low",
-              "major_gridlines": {"visible": False}, "major_tick_mark": "outside"}
+def _font(size=FONT_SIZE, bold=False, color=AXIS_COLOR, **extra) -> dict:
+    return {"name": FONT, "size": size, "bold": bold, "color": color, **extra}
+
+
+def _style_chart(chart, title: str, *, date_axis: bool = True, legend: bool = True,
+                 size=CHART_SIZE, y_at_right: bool = True, x_line: bool = True,
+                 y_format: str = "0.0", delete_from_legend: list | None = None) -> None:
+    """Общее оформление: заголовок слева жирным, легенда снизу, черные оси, ось Y справа."""
+    chart.set_title({"name": title, "name_font": _font(TITLE_SIZE, bold=True), "overlay": False,
+                     "layout": {"x": 0.01, "y": 0.02}})
+    if legend:
+        options = {"position": "bottom", "font": _font()}
+        if delete_from_legend:
+            options["delete_series"] = delete_from_legend
+        chart.set_legend(options)
+    else:
+        chart.set_legend({"none": True})
+    x_axis = {"num_font": _font(), "line": AXIS_LINE if x_line else {"none": True},
+              "label_position": "low", "major_gridlines": {"visible": False},
+              "major_tick_mark": "outside" if date_axis else "none",
+              "position_axis": "between"}
+    if y_at_right:
+        x_axis["crossing"] = "max"      # ось Y пересекает ось X в максимальном значении
     if date_axis:
         x_axis.update({"date_axis": True, "num_format": DATE_AXIS_FORMAT,
                        "major_unit": 1, "major_unit_type": "months",
                        "base_unit": 1, "base_unit_type": "months",
                        "num_font": _font(rotation=-90)})
-    else:
-        x_axis["major_tick_mark"] = "none"
     chart.set_x_axis(x_axis)
-    y_axis = {"num_font": _font(), "num_format": y_format, "line": axis_line,
-              "major_tick_mark": "outside",
-              "major_gridlines": {"visible": CHART_GRIDLINES,
-                                  "line": {"color": BRAND["light_grey"], "width": 0.5}}}
-    if y_title:
-        y_axis.update({"name": y_title, "name_font": _font(size=9)})
-    chart.set_y_axis(y_axis)
+    chart.set_y_axis({"num_font": _font(), "num_format": y_format, "line": AXIS_LINE,
+                      "major_tick_mark": "outside",
+                      "major_gridlines": {"visible": CHART_GRIDLINES,
+                                          "line": {"color": BRAND["light_grey"], "width": 0.5}}})
     chart.set_chartarea({"border": {"none": True}, "fill": {"color": CHART_BACKGROUND}})
     chart.set_plotarea({"border": {"none": True}, "fill": {"none": True}})
     chart.set_size({"width": size[0], "height": size[1]})
@@ -1310,61 +1459,77 @@ def _chart_rows(dates: pd.Series, start: pd.Timestamp, row0: int = 0) -> tuple[i
     return row0 + 1 + int(positions[0]), row0 + len(dates)
 
 
+def _chart_height_rows(height_px: int) -> int:
+    return int(math.ceil(height_px / 20.0)) + 2
+
+
 def _sheet_main(wb, st, report: ReportData) -> None:
     name = "Хедлайн и базовая"
     ws = wb.add_worksheet(name)
     df, info = report.main, report.main_info
+    c = info["columns"]
     _write_table(ws, st, df)
     ws.freeze_panes(1, 1)
     rows = _chart_rows(df["Дата"], report.chart_start)
     if rows is None:
         return
     r1, r2 = rows
-    col = {c: j for j, c in enumerate(df.columns)}
-    labels = {k: v[0].upper() + v[1:] for k, v in info["labels"].items()}
+    col = {name_: j for j, name_ in enumerate(df.columns)}
+    labels = {k: v[0].upper() + v[1:] for k, v in core_labels().items()}
     cats = [name, r1, 0, r2, 0]
+    chart_col = len(df.columns) + 1
 
     def ref(column):
         return [name, r1, col[column], r2, col[column]]
 
-    # (1) м/м: SA-хедлайн и базовая — ярко, nSA-хедлайн — бледно.
-    ch = wb.add_chart({"type": "line"})
-    ch.add_series({"name": "Хедлайн nSA", "categories": cats, "values": ref("Хедлайн nSA, м/м, %"),
-                   "line": _line(HEADLINE_NSA_COLOR, 1.5)})
-    for k in CORE_KEYS:
-        color, dash, _ = CORE_STYLES[k]
-        ch.add_series({"name": labels[k], "categories": cats,
-                       "values": ref(f"Базовая {info['kind']}: {info['labels'][k]}, м/м, %"),
-                       "line": _line(color, 1.75, dash)})
-    ch.add_series({"name": "Хедлайн SA", "categories": cats, "values": ref("Хедлайн SA, м/м, %"),
-                   "line": _line(HEADLINE_COLOR, 2.25)})
-    core_note = "SA" if info["kind"] == "SA" else "nSA, детальные категории"
-    _style_chart(ch, f"Инфляция м/м: хедлайн и базовая ({core_note}), %")
-    first_chart_col = len(df.columns) + 1
-    ws.insert_chart(1, first_chart_col, ch)
+    def core_band(chart, low_column, width_column, label):
+        # Диапазон базовой инфляции: невидимая «подложка» до минимума + заливка
+        # высотой (макс. − мин.). Подложка удалена из легенды.
+        chart.add_series({"name": "мин.", "categories": cats, "values": ref(low_column),
+                          "fill": {"none": True}, "line": {"none": True}})
+        chart.add_series({"name": label, "categories": cats, "values": ref(width_column),
+                          "fill": {"color": CORE_BAND_COLOR, "transparency": CORE_BAND_TRANSPARENCY},
+                          "line": {"none": True}})
 
-    # (2) г/г — линии, SAAR — точки.
-    ch = wb.add_chart({"type": "line"})
-    for k in CORE_KEYS:
-        color, dash, _ = CORE_STYLES[k]
-        ch.add_series({"name": f"{labels[k]}, г/г", "categories": cats,
-                       "values": ref(f"Базовая: {info['labels'][k]}, г/г, %"),
-                       "line": _line(color, 1.75, dash)})
-    ch.add_series({"name": "Хедлайн, г/г", "categories": cats, "values": ref("Хедлайн, г/г, %"),
-                   "line": _line(HEADLINE_COLOR, 2.25)})
-    ch.add_series({"name": "Хедлайн, SAAR", "categories": cats, "values": ref("Хедлайн SAAR, %"),
-                   "line": {"none": True}, "marker": _marker("circle", HEADLINE_COLOR, 6)})
-    if info["kind"] == "SA":
+    kind = info["kind"]
+    # (1) м./м.: диапазон базовой, SA-хедлайн ярко, nSA-хедлайн бледно.
+    area = wb.add_chart({"type": "area", "subtype": "stacked"})
+    core_band(area, c["core_mm_min"], c["band_mm"], f"Базовая {kind}: диапазон 4 методов")
+    lines = wb.add_chart({"type": "line"})
+    lines.add_series({"name": "Хедлайн nSA", "categories": cats, "values": ref(c["hl_nsa"]),
+                      "line": _line(HEADLINE_NSA_COLOR, 1.5)})
+    lines.add_series({"name": "Хедлайн SA", "categories": cats, "values": ref(c["hl_sa"]),
+                      "line": _line(HEADLINE_COLOR, 2.25)})
+    area.combine(lines)
+    _style_chart(area, f"Инфляция {MM}: хедлайн и базовая ({kind}), %", delete_from_legend=[0])
+    ws.insert_chart(1, chart_col, area)
+
+    # (2) г./г.: диапазон базовой и хедлайн линией; SAAR — точками разной формы.
+    # Пустые ячейки Excel рисует у области как ноль, поэтому график начинается с
+    # первого месяца, где есть г./г. базовой (важно для варианта "nSA").
+    first_band = df.loc[df[c["core_yoy_min"]].notna(), "Дата"].min()
+    if not pd.isna(first_band) and first_band > report.chart_start:
+        rows_yoy = _chart_rows(df["Дата"], first_band)
+        cats = [name, rows_yoy[0], 0, rows_yoy[1], 0]
+        r1 = rows_yoy[0]
+    area = wb.add_chart({"type": "area", "subtype": "stacked"})
+    core_band(area, c["core_yoy_min"], c["band_yoy"], f"Базовая: диапазон 4 методов, {YY}")
+    lines = wb.add_chart({"type": "line"})
+    lines.add_series({"name": f"Хедлайн, {YY}", "categories": cats, "values": ref(c["hl_yoy"]),
+                      "line": _line(HEADLINE_COLOR, 2.25)})
+    lines.add_series({"name": "Хедлайн, SAAR", "categories": cats, "values": ref(c["hl_saar"]),
+                      "line": {"none": True}, "marker": _marker("circle", HEADLINE_COLOR, 6)})
+    if kind == "SA":
         for k in CORE_KEYS:
-            color, _, marker = CORE_STYLES[k]
-            ch.add_series({"name": f"{labels[k]}, SAAR", "categories": cats,
-                           "values": ref(f"Базовая: {info['labels'][k]}, SAAR, %"),
-                           "line": {"none": True}, "marker": _marker(marker, color, 5)})
-    title = "Инфляция г/г (линии) и SAAR (точки): хедлайн и базовая, %"
-    if info["kind"] != "SA":
-        title = "Инфляция г/г (линии) и SAAR хедлайна (точки), %"
-    _style_chart(ch, title, size=(CHART_SIZE[0], CHART_SIZE[1] + 40))
-    ws.insert_chart(24, first_chart_col, ch)
+            color, marker = CORE_SAAR_MARKERS[k]
+            lines.add_series({"name": f"{labels[k]}, SAAR", "categories": cats,
+                              "values": ref(c["core_saar"][k]),
+                              "line": {"none": True}, "marker": _marker(marker, color, 5)})
+    area.combine(lines)
+    size = (CHART_SIZE[0], CHART_SIZE[1] + 40)
+    _style_chart(area, f"Инфляция {YY} и SAAR: хедлайн и базовая, %", size=size,
+                 delete_from_legend=[0])
+    ws.insert_chart(1 + _chart_height_rows(CHART_SIZE[1]), chart_col, area)
 
 
 def _sheet_contributions(wb, st, report: ReportData) -> None:
@@ -1373,6 +1538,8 @@ def _sheet_contributions(wb, st, report: ReportData) -> None:
     ws = wb.add_worksheet(name)
     _write_table(ws, st, df, widths={c: 14 for c in df.columns})
     ws.freeze_panes(1, 3)
+    zero_j = list(df.columns).index(ZERO_COLUMN)
+    ws.set_column(zero_j, zero_j, 14, None, {"hidden": True})
     if df.empty:
         return
     # График начинается с первого месяца квартала, в который попадает CHART_START.
@@ -1384,6 +1551,7 @@ def _sheet_contributions(wb, st, report: ReportData) -> None:
     r1, r2 = rows
     cat_ref = [name, r1, 0, r2, 1]
     part = df.iloc[r1 - 1:r2]
+
     # Двухуровневая ось: месяцы и под ними кварталы. Кэш подписей — в формате Excel:
     # пустые ячейки пропускаются (подпись квартала «растягивается» до следующей).
     def labels(column):
@@ -1402,41 +1570,71 @@ def _sheet_contributions(wb, st, report: ReportData) -> None:
                   "values": [name, r1, col[component], r2, col[component]],
                   "fill": {"color": color}, "border": {"none": True}}
         if i == 0:
-            series["gap"] = 40
+            series["gap"] = COLUMN_GAP
         ch.add_series(series)
-    line = wb.add_chart({"type": "line"})
-    line.add_series({"name": info["line"].replace(", м/м, %", " м/м"),
-                     "categories": cat_ref, "categories_data": cats_cache,
-                     "values": [name, r1, col[info["line"]], r2, col[info["line"]]],
-                     "line": _line(BRAND["text"], 1.25),
-                     "marker": _marker("circle", BRAND["text"], 4)})
-    ch.combine(line)
+    lines = wb.add_chart({"type": "line"})
+    # Линия нуля вместо оси X: у двухуровневой оси Excel рисует между кварталами
+    # вертикальные разделители цветом линии оси, поэтому сама ось скрыта.
+    lines.add_series({"name": "0", "categories": cat_ref, "categories_data": cats_cache,
+                      "values": [name, r1, zero_j, r2, zero_j], "line": _line(AXIS_COLOR, 0.75)})
+    lines.add_series({"name": info["line"].replace(", %", ""),
+                      "categories": cat_ref, "categories_data": cats_cache,
+                      "values": [name, r1, col[info["line"]], r2, col[info["line"]]],
+                      "line": _line(AXIS_COLOR, 1.75)})
+    ch.combine(lines)
     ch.show_blanks_as("span")
-    title = ("Вклады в SA-хедлайн м/м, п.п." if info["basis"].kind == "SA"
-             else "Вклады в хедлайн м/м (nSA, детальные категории), п.п.")
-    _style_chart(ch, title, date_axis=False)
+    ch.show_hidden_data()
+    title = (f"Вклады в SA-хедлайн {MM}, п.п." if info["basis"].kind == "SA"
+             else f"Вклады в хедлайн {MM} (nSA, детальные категории), п.п.")
+    _style_chart(ch, title, date_axis=False, x_line=False,
+                 delete_from_legend=[len(info["components"])])
     ws.insert_chart(1, len(df.columns) + 1, ch)
+
+
+def _ytd_chart(wb, sheet: str, ytd: pd.DataFrame, col0: int, title: str, current: str,
+               previous: str, pale: list | None) -> object | None:
+    """
+    Накопленная с начала года: текущий год — розовым, прошлый — темно-синим.
+    pale — список лет для бледных линий разного цвета; None — все остальные годы
+    светло-серым (без подписей в легенде).
+    """
+    years = list(ytd.columns[1:])
+    if not years:
+        return None
+    if pale is None:
+        older = [y for y in years if y not in (current, previous)]
+        styles = {y: _line(BRAND["light_grey"], 1.0) for y in older}
+        hidden_years = set(older)
+    else:
+        older = [y for y in pale if y in years]
+        styles = {y: _line(PALE_YEAR_COLORS[k % len(PALE_YEAR_COLORS)], 1.5)
+                  for k, y in enumerate(older)}
+        hidden_years = set()
+    styles[previous] = _line(PREVIOUS_YEAR_COLOR, 2.25)
+    styles[current] = _line(CURRENT_YEAR_COLOR, 2.75)
+    order = list(reversed(older)) + [y for y in (previous, current) if y in years]
+    ch = wb.add_chart({"type": "line"})
+    hidden = []
+    for i, year in enumerate(order):
+        j = col0 + list(ytd.columns).index(year)
+        ch.add_series({"name": year, "categories": [sheet, 1, col0, 12, col0],
+                       "values": [sheet, 1, j, 12, j], "line": styles[year]})
+        if year in hidden_years:
+            hidden.append(i)
+    _style_chart(ch, title, date_axis=False, delete_from_legend=hidden or None)
+    return ch
 
 
 def _sheet_cumulative(wb, st, report: ReportData) -> None:
     df, info = report.cumulative, report.cumulative_info
     name = "Накопленная"
     ws = wb.add_worksheet(name)
-    _write_table(ws, st, df, widths={c: 16 for c in df.columns})
+    _write_table(ws, st, df, widths={c: 8 for c in df.columns})
     ws.freeze_panes(1, 1)
-    rows = _chart_rows(df["Дата"], report.chart_start)
-    if rows is None or len(df.columns) < 2:
-        return
-    r1, r2 = rows
-    ch = wb.add_chart({"type": "line"})
-    for i, column in enumerate(df.columns[1:]):
-        color = PALETTE_SIMPLE[i % len(PALETTE_SIMPLE)]
-        ch.add_series({"name": column.split(", % к ")[0], "categories": [name, r1, 0, r2, 0],
-                       "values": [name, r1, i + 1, r2, i + 1],
-                       "line": _line(color, 2.25 if i == 0 else 1.75)})
-    _style_chart(ch, f"Накопленная инфляция: уровень цен, % к {info['base_label']}",
-                 legend=len(df.columns) > 2)
-    ws.insert_chart(1, len(df.columns) + 1, ch)
+    ch = _ytd_chart(wb, name, df, 0, "Накопленная с начала года инфляция, %",
+                    info["current"], info["previous"], info["pale"])
+    if ch is not None:
+        ws.insert_chart(1, len(df.columns) + 1, ch)
 
 
 def _sheet_split(wb, st, report: ReportData) -> None:
@@ -1446,23 +1644,25 @@ def _sheet_split(wb, st, report: ReportData) -> None:
     ws = wb.add_worksheet(name)
     _write_table(ws, st, df, widths={c: 15 for c in df.columns})
     ws.freeze_panes(1, 1)
-    measure = "м/м" if normalize_text(SPLIT_CHART) in ("м/м", "мм") else "г/г"
-    # Г/г появляется только через 12 месяцев после начала детальных данных:
-    # график начинается с первого месяца, где есть значения.
-    shown = df[[f"{n1}, {measure}, %", f"{n0}, {measure}, %"]].notna().any(axis=1)
-    first_valid = df.loc[shown, "Дата"].min()
-    start = report.chart_start if pd.isna(first_valid) else max(report.chart_start, first_valid)
-    rows = _chart_rows(df["Дата"], start)
-    if rows is None:
-        return
-    r1, r2 = rows
-    ch = wb.add_chart({"type": "line"})
-    for series_name, color in [(n1, BRAND["navy"]), (n0, BRAND["magenta"])]:
-        j = list(df.columns).index(f"{series_name}, {measure}, %")
-        ch.add_series({"name": series_name, "categories": [name, r1, 0, r2, 0],
-                       "values": [name, r1, j, r2, j], "line": _line(color, 2.25)})
-    _style_chart(ch, f"{n1} и {n0.lower()} инфляция, {measure}, %")
-    ws.insert_chart(1, len(df.columns) + 1, ch)
+    row = 1
+    for measure in (MM, YY):
+        # Г./г. появляется через 12 месяцев после начала детальных данных:
+        # график начинается с первого месяца, где есть значения.
+        shown = df[[f"{n1}, {measure}, %", f"{n0}, {measure}, %"]].notna().any(axis=1)
+        first_valid = df.loc[shown, "Дата"].min()
+        start = report.chart_start if pd.isna(first_valid) else max(report.chart_start, first_valid)
+        rows = _chart_rows(df["Дата"], start)
+        if rows is None:
+            continue
+        r1, r2 = rows
+        ch = wb.add_chart({"type": "line"})
+        for series_name, color in [(n1, BRAND["navy"]), (n0, BRAND["magenta"])]:
+            j = list(df.columns).index(f"{series_name}, {measure}, %")
+            ch.add_series({"name": series_name, "categories": [name, r1, 0, r2, 0],
+                           "values": [name, r1, j, r2, j], "line": _line(color, 2.25)})
+        _style_chart(ch, f"{n1} и {n0.lower()} инфляция, {measure}, %")
+        ws.insert_chart(row, len(df.columns) + 1, ch)
+        row += _chart_height_rows(CHART_SIZE[1])
 
 
 def _sheet_matrix(wb, st, report: ReportData) -> None:
@@ -1477,45 +1677,41 @@ def _sheet_matrix(wb, st, report: ReportData) -> None:
     r1, r2 = rows
     col = {c: j for j, c in enumerate(df.columns)}
     part = df.iloc[r1 - 1:r2]
-    tier_style = [(BRAND["navy"], 9, BRAND["navy"]),
-                  (BRAND["grey_blue"], 7, BRAND["grey_blue"]),
-                  (BRAND["light_grey"], 6, None)]
+    sizes = (9, 7, 6)
     ch = wb.add_chart({"type": "scatter"})
-    for t, tier_name in enumerate(info["tiers"]):
-        color, size, label_color = tier_style[t]
+    # Сначала прошлые годы, чтобы последние точки рисовались поверх.
+    for t in (2, 1, 0):
+        tier_name = info["tiers"][t]
         if part[tier_name].notna().sum() == 0:
             continue  # например, в январе нет точек «ранее в текущем году»
-        series = {"name": tier_name,
-                  "categories": [name, r1, col[info["x"]], r2, col[info["x"]]],
-                  "values": [name, r1, col[tier_name], r2, col[tier_name]],
-                  "marker": _marker("circle", color, size)}
-        if label_color is not None:
-            custom = [{"value": lab, "font": _font(size=9, color=label_color)}
-                      if not _is_na(v) else {"delete": True}
-                      for lab, v in zip(part["Метка"], part[tier_name])]
-            series["data_labels"] = {"value": True, "custom": custom, "position": "right"}
-        ch.add_series(series)
-    axis_line = {"color": BRAND["grey"], "width": 0.75}
+        custom = [{"value": lab, "font": _font(9, color=MATRIX_LABEL_COLORS[t])}
+                  if not _is_na(v) else {"delete": True}
+                  for lab, v in zip(part["Метка"], part[tier_name])]
+        ch.add_series({"name": tier_name,
+                       "categories": [name, r1, col[info["x"]], r2, col[info["x"]]],
+                       "values": [name, r1, col[tier_name], r2, col[tier_name]],
+                       "marker": _marker("circle", MATRIX_COLORS[t], sizes[t]),
+                       "data_labels": {"value": True, "custom": custom, "position": "right"}})
     ch.set_title({"name": "Инфляция и разброс изменений цен по корзине",
-                  "name_font": _font(FONT_TITLE, 11, BRAND["text_grey"]), "overlay": False})
-    ch.set_legend({"position": "top", "font": _font()})
+                  "name_font": _font(TITLE_SIZE, bold=True), "overlay": False,
+                  "layout": {"x": 0.01, "y": 0.02}})
+    ch.set_legend({"position": "bottom", "font": _font()})
     # Оси пересекаются на границах «высокая/низкая» и «однородная/неоднородная»:
     # получается решетка из четырех квадрантов, подписи осей — по краям.
     ch.set_x_axis({"name": info["x"], "name_font": _font(), "num_font": _font(),
-                   "num_format": "0.0", "line": axis_line, "label_position": "low",
+                   "num_format": "0.0", "line": AXIS_LINE, "label_position": "low",
                    "crossing": round(info["x_threshold"], 3),
                    "major_gridlines": {"visible": False}})
     ch.set_y_axis({"name": info["y"], "name_font": _font(), "num_font": _font(),
-                   "num_format": "0.0", "line": axis_line, "label_position": "low",
+                   "num_format": "0.0", "line": AXIS_LINE, "label_position": "low",
                    "crossing": round(info["y_threshold"], 3),
                    "major_gridlines": {"visible": False}})
     ch.set_chartarea({"border": {"none": True}, "fill": {"color": CHART_BACKGROUND}})
     ch.set_plotarea({"border": {"none": True}, "fill": {"none": True}})
-    ch.set_size({"width": 720, "height": 560})
+    ch.set_size({"width": 760, "height": 600})
     ws.insert_chart(1, len(df.columns) + 1, ch)
-    note_row = 30
-    ws.write(note_row, len(df.columns) + 1,
-             f"Горизонтальная ось пересекает вертикальную на уровне {info['y_threshold']:.2f}% м/м "
+    ws.write(_chart_height_rows(600) + 1, len(df.columns) + 1,
+             f"Горизонтальная ось пересекает вертикальную на уровне {info['y_threshold']:.2f}% {MM} "
              f"(≈ {MATRIX_TARGET_SAAR:.0f}% в год), вертикальная — на медиане разброса "
              f"за период графика ({info['x_threshold']:.2f} п.п.).", st.note)
 
@@ -1535,7 +1731,7 @@ def _sheet_top(wb, st, report: ReportData) -> None:
     for group in TOP_GROUPS:
         ws.merge_range(row, 0, row, 6, f"Группа {group}", st.section)
         row += 1
-        for metric in ["м/м, %", "г/г, %", "Вклад в хедлайн, п.п."]:
+        for metric in [f"{MM}, %", f"{YY}, %", "Вклад в хедлайн, п.п."]:
             positive, negative = report.top_data[str(group)][metric]
             ws.merge_range(row, 0, row, 6, metric, st.subheader)
             row += 1
@@ -1576,46 +1772,28 @@ def _sheet_category(wb, st, report: ReportData, cat: dict, used: set) -> None:
     _write_table(ws, st, ytd, col0=ytd_col, widths={c: 8 for c in ytd.columns})
     chart_col = ytd_col + len(ytd.columns) + 1
 
+    row = 1
     rows = _chart_rows(table["Дата"], report.chart_start)
     if rows is not None:
         r1, r2 = rows
+        # Две шкалы: м./м. — левая, г./г. — правая (основная, «в максимальном значении»).
         ch = wb.add_chart({"type": "line"})
-        ch.add_series({"name": "г/г", "categories": [name, r1, 0, r2, 0],
-                       "values": [name, r1, 2, r2, 2], "line": _line(BRAND["navy"], 2.25)})
-        ch.add_series({"name": "м/м (правая шкала)", "categories": [name, r1, 0, r2, 0],
-                       "values": [name, r1, 1, r2, 1], "line": _line(BRAND["magenta"], 1.5),
+        ch.add_series({"name": f"{MM} (левая шкала)", "categories": [name, r1, 0, r2, 0],
+                       "values": [name, r1, 1, r2, 1], "line": _line(BRAND["magenta"], 1.5)})
+        ch.add_series({"name": f"{YY} (правая шкала)", "categories": [name, r1, 0, r2, 0],
+                       "values": [name, r1, 2, r2, 2], "line": _line(BRAND["navy"], 2.25),
                        "y2_axis": True})
-        _style_chart(ch, f"{cat['name']}: м/м и г/г, %")
-        ch.set_y2_axis({"num_font": _font(), "num_format": "0.0",
-                        "line": {"color": BRAND["grey"], "width": 0.75},
-                        "major_gridlines": {"visible": False}})
-        ws.insert_chart(1, chart_col, ch)
+        _style_chart(ch, f"{cat['name']}: {MM} и {YY}, %", y_at_right=False)
+        ch.set_y2_axis({"num_font": _font(), "num_format": "0.0", "line": AXIS_LINE,
+                        "major_tick_mark": "outside", "major_gridlines": {"visible": False}})
+        ws.insert_chart(row, chart_col, ch)
+        row += _chart_height_rows(CHART_SIZE[1])
 
-    # Накопленная с начала года: текущий год — ярко, прошлый — темно-синим,
-    # более ранние годы — светло-серым (в легенде только текущий и прошлый).
-    years = list(ytd.columns[1:])
-    if years:
-        ch = wb.add_chart({"type": "line"})
-        order = [y for y in years if y != cat["current_year"]] + (
-            [cat["current_year"]] if cat["current_year"] in years else [])
-        previous = str(int(cat["current_year"]) - 1)
-        hidden = []
-        for i, year in enumerate(order):
-            j = ytd_col + list(ytd.columns).index(year)
-            if year == cat["current_year"]:
-                style = {"line": _line(BRAND["magenta"], 2.75), "marker": _marker("circle", BRAND["magenta"], 5)}
-            elif year == previous:
-                style = {"line": _line(BRAND["navy"], 1.75)}
-            else:
-                style = {"line": _line(BRAND["light_grey"], 1.0)}
-                hidden.append(i)
-            ch.add_series({"name": year, "categories": [name, 1, ytd_col, 12, ytd_col],
-                           "values": [name, 1, j, 12, j], **style})
-        _style_chart(ch, f"{cat['name']}: накопленная с начала года инфляция, %",
-                     date_axis=False)
-        if hidden:
-            ch.set_legend({"position": "top", "font": _font(), "delete_series": hidden})
-        ws.insert_chart(24, chart_col, ch)
+    # Накопленная с начала года: все прошлые годы (бледно-серым, без легенды).
+    ch = _ytd_chart(wb, name, ytd, ytd_col, f"{cat['name']}: накопленная с начала года инфляция, %",
+                    cat["current_year"], str(int(cat["current_year"]) - 1), None)
+    if ch is not None:
+        ws.insert_chart(row, chart_col, ch)
 
 
 def export_excel(report: ReportData, path: Path) -> None:
@@ -1624,7 +1802,7 @@ def export_excel(report: ReportData, path: Path) -> None:
 
     path = Path(path)
     wb = xlsxwriter.Workbook(str(path))
-    wb.formats[0].set_font_name(FONT_TEXT)
+    wb.formats[0].set_font_name(FONT)
     st = _Styles(wb)
     _sheet_main(wb, st, report)
     _sheet_contributions(wb, st, report)
@@ -1654,72 +1832,94 @@ def export_pdf(report: ReportData, path: Path) -> None:
     from matplotlib.backends.backend_pdf import PdfPages
     from matplotlib.ticker import FuncFormatter
 
-    matplotlib.rcParams.update({
-        "font.family": "serif",
-        "font.serif": [FONT_TEXT, "Liberation Serif", "DejaVu Serif"],
-        "axes.spines.top": False, "axes.spines.right": False,
-        "axes.edgecolor": BRAND["grey"], "axes.linewidth": 0.75,
-        "xtick.color": BRAND["text"], "ytick.color": BRAND["text"],
-        "legend.frameon": False, "axes.formatter.use_locale": False,
-    })
-    title_font = {"family": "sans-serif", "fontsize": 13, "color": BRAND["text_grey"],
-                  "fontweight": "normal"}
+    style = {
+        "font.family": "sans-serif",
+        "font.sans-serif": [FONT, "Liberation Sans", "DejaVu Sans"],
+        "font.size": FONT_SIZE, "axes.edgecolor": AXIS_COLOR, "axes.linewidth": 0.75,
+        "xtick.color": AXIS_COLOR, "ytick.color": AXIS_COLOR, "legend.frameon": False,
+        "axes.unicode_minus": False,
+    }
     comma = FuncFormatter(lambda v, _: f"{v:.1f}".replace(".", ","))
+    markers = {"circle": "o", "square": "s", "diamond": "D", "triangle": "^"}
+    alpha = 1.0 - CORE_BAND_TRANSPARENCY / 100.0
+    start = report.chart_start
 
-    def date_axis(ax, dates):
-        dates = pd.to_datetime(pd.Series(dates)).dropna()
-        ticks = [d for d in dates if d.month % 2 == 1] or list(dates)
-        ax.set_xticks(ticks)
-        ax.set_xticklabels([f"{MONTHS_SHORT[d.month]} {d.year % 100:02d}" for d in ticks], rotation=90)
-
-    def finish(fig, ax, title, legend=True):
-        ax.set_title(title, loc="left", **title_font)
+    def new_axes(height=6.2, y_right=True):
+        fig, ax = plt.subplots(figsize=(11.0, height))
+        ax.spines["top"].set_visible(False)
+        if y_right:
+            ax.spines["left"].set_visible(False)
+            ax.yaxis.tick_right()
+        else:
+            ax.spines["right"].set_visible(False)
         ax.yaxis.set_major_formatter(comma)
-        if legend:
-            ax.legend(loc="upper left", bbox_to_anchor=(0, 1.0), ncol=3, fontsize=9)
-        fig.tight_layout()
+        return fig, ax
+
+    def zero_line(ax):
+        low, high = ax.get_ylim()
+        if low < 0 < high:
+            ax.spines["bottom"].set_visible(False)
+            ax.axhline(0, color=AXIS_COLOR, lw=0.75, zorder=1)
+
+    def month_axis(ax, dates):
+        dates = list(pd.to_datetime(pd.Series(dates)).dropna())
+        if not dates:
+            return
+        ax.set_xticks(dates)
+        ax.set_xticklabels([f"{MONTHS_EXCEL[d.month]} {d.year % 100:02d}" for d in dates], rotation=90)
+        ax.set_xlim(dates[0] - pd.Timedelta(days=16), dates[-1] + pd.Timedelta(days=16))
+
+    def finish(fig, ax, title, handles=None, ncol=3):
+        if handles is None:
+            handles, labels = ax.get_legend_handles_labels()
+        else:
+            labels = [h.get_label() for h in handles]
+        n_rows = math.ceil(len(handles) / ncol) if handles else 0
+        if handles:
+            fig.legend(handles, labels, loc="lower center", ncol=ncol, frameon=False,
+                       bbox_to_anchor=(0.5, 0.005))
+        fig.text(0.01, 0.985, title, ha="left", va="top", fontsize=TITLE_SIZE, fontweight="bold")
+        fig.tight_layout(rect=(0, 0.01 + 0.042 * n_rows, 1, 0.94))
         pdf.savefig(fig)
         plt.close(fig)
 
-    start = report.chart_start
-    with PdfPages(path) as pdf:
-        # Лист 1.
-        info = report.main_info
-        labels = {k: v[0].upper() + v[1:] for k, v in info["labels"].items()}
+    with matplotlib.rc_context(style), PdfPages(path) as pdf:
+        # Лист 1: м./м. и г./г. + SAAR.
+        c, kind = report.main_info["columns"], report.main_info["kind"]
+        labels = {k: v[0].upper() + v[1:] for k, v in core_labels().items()}
         d = report.main[report.main["Дата"] >= start]
-        fig, ax = plt.subplots(figsize=(11.7, 6.8))
-        ax.plot(d["Дата"], d["Хедлайн nSA, м/м, %"], color=HEADLINE_NSA_COLOR, lw=1.5, label="Хедлайн nSA")
-        for k in CORE_KEYS:
-            color, dash, _ = CORE_STYLES[k]
-            ax.plot(d["Дата"], d[f"Базовая {info['kind']}: {info['labels'][k]}, м/м, %"], color=color,
-                    lw=1.75, ls="--" if dash == "dash" else "-", label=labels[k])
-        ax.plot(d["Дата"], d["Хедлайн SA, м/м, %"], color=HEADLINE_COLOR, lw=2.25, label="Хедлайн SA")
-        date_axis(ax, d["Дата"])
-        finish(fig, ax, "Инфляция м/м: хедлайн и базовая, %")
+        fig, ax = new_axes()
+        ax.fill_between(d["Дата"], d[c["core_mm_min"]], d[c["core_mm_max"]], color=CORE_BAND_COLOR,
+                        alpha=alpha, lw=0, label=f"Базовая {kind}: диапазон 4 методов")
+        ax.plot(d["Дата"], d[c["hl_nsa"]], color=HEADLINE_NSA_COLOR, lw=1.5, label="Хедлайн nSA")
+        ax.plot(d["Дата"], d[c["hl_sa"]], color=HEADLINE_COLOR, lw=2.25, label="Хедлайн SA")
+        month_axis(ax, d["Дата"])
+        zero_line(ax)
+        finish(fig, ax, f"Инфляция {MM}: хедлайн и базовая ({kind}), %")
 
-        fig, ax = plt.subplots(figsize=(11.7, 6.8))
-        markers = {"circle": "o", "square": "s", "diamond": "D", "triangle": "^"}
-        for k in CORE_KEYS:
-            color, dash, marker = CORE_STYLES[k]
-            ax.plot(d["Дата"], d[f"Базовая: {info['labels'][k]}, г/г, %"], color=color, lw=1.75,
-                    ls="--" if dash == "dash" else "-", label=f"{labels[k]}, г/г")
-            column = f"Базовая: {info['labels'][k]}, SAAR, %"
-            if column in d:
-                ax.scatter(d["Дата"], d[column], color=color, s=18, marker=markers[marker],
-                           label=f"{labels[k]}, SAAR", zorder=3)
-        ax.plot(d["Дата"], d["Хедлайн, г/г, %"], color=HEADLINE_COLOR, lw=2.25, label="Хедлайн, г/г")
-        ax.scatter(d["Дата"], d["Хедлайн SAAR, %"], color=HEADLINE_COLOR, s=24, label="Хедлайн, SAAR", zorder=3)
-        date_axis(ax, d["Дата"])
-        finish(fig, ax, "Инфляция г/г (линии) и SAAR (точки), %")
+        fig, ax = new_axes(6.6)
+        ax.fill_between(d["Дата"], d[c["core_yoy_min"]], d[c["core_yoy_max"]], color=CORE_BAND_COLOR,
+                        alpha=alpha, lw=0, label=f"Базовая: диапазон 4 методов, {YY}")
+        ax.plot(d["Дата"], d[c["hl_yoy"]], color=HEADLINE_COLOR, lw=2.25, label=f"Хедлайн, {YY}")
+        ax.scatter(d["Дата"], d[c["hl_saar"]], color=HEADLINE_COLOR, s=30, zorder=3, label="Хедлайн, SAAR")
+        if kind == "SA":
+            for k in CORE_KEYS:
+                color, marker = CORE_SAAR_MARKERS[k]
+                ax.scatter(d["Дата"], d[c["core_saar"][k]], color=color, s=22, marker=markers[marker],
+                           zorder=3, label=f"{labels[k]}, SAAR")
+        month_axis(ax, d["Дата"])
+        zero_line(ax)
+        finish(fig, ax, f"Инфляция {YY} и SAAR: хедлайн и базовая, %")
 
         # Лист 2: вклады, месяцы по кварталам.
-        c, cinfo = report.contrib, report.contrib_info
+        cdf, cinfo = report.contrib, report.contrib_info
         q_start = pd.Timestamp(start.year, 3 * ((start.month - 1) // 3) + 1, 1)
-        first = c.index[c["Дата"].ge(q_start).fillna(False)]
+        first = cdf.index[cdf["Дата"].ge(q_start).fillna(False)]
         if len(first):
-            part = c.loc[first[0]:].reset_index(drop=True)
+            part = cdf.loc[first[0]:].reset_index(drop=True)
             x = np.arange(len(part))
-            fig, ax = plt.subplots(figsize=(11.7, 6.8))
+            width = 1.0 / (1.0 + COLUMN_GAP / 100.0)
+            fig, ax = new_axes()
             pos, neg = np.zeros(len(part)), np.zeros(len(part))
             for i, component in enumerate(cinfo["components"]):
                 vals = part[component].astype(float).fillna(0).to_numpy()
@@ -1727,100 +1927,116 @@ def export_pdf(report: ReportData, path: Path) -> None:
                 if component.startswith(("Вклад: Не распределено", "Расхождение")):
                     color = BRAND["light_grey"]
                 bottom = np.where(vals >= 0, pos, neg)
-                ax.bar(x, vals, bottom=bottom, color=color, width=0.8,
+                ax.bar(x, vals, bottom=bottom, color=color, width=width,
                        label=component.replace("Вклад: ", "").replace(", п.п.", ""))
                 pos += np.where(vals > 0, vals, 0)
                 neg += np.where(vals < 0, vals, 0)
+            ax.spines["bottom"].set_visible(False)
+            ax.axhline(0, color=AXIS_COLOR, lw=0.75, zorder=1)
             total = part[cinfo["line"]].astype(float)
             ok = total.notna().to_numpy()
-            ax.plot(x[ok], total[ok], color=BRAND["text"], lw=1.25, marker="o", ms=3,
-                    label=cinfo["line"].replace(", м/м, %", " м/м"))
-            ax.axhline(0, color=BRAND["grey"], lw=0.75)
-            ax.set_xticks(x)
-            ax.set_xticklabels(part["Месяц"].fillna(""), fontsize=8)
+            line, = ax.plot(x[ok], total[ok], color=AXIS_COLOR, lw=1.75,
+                            label=cinfo["line"].replace(", %", ""))
+            month_rows = part["Месяц"].fillna("").astype(str).str.len().to_numpy() > 0
+            ax.set_xticks(x[month_rows])
+            ax.set_xticklabels(part.loc[month_rows, "Месяц"], fontsize=8)
+            ax.tick_params(axis="x", length=0)
+            ax.set_xlim(-0.6, len(part) - 0.4)
             for i, q in enumerate(part["Квартал"].fillna("")):
-                if q.strip():
-                    n_months = int(part["Месяц"].iloc[i:i + 3].fillna("").astype(bool).sum())
+                if str(q).strip():
+                    n_months = int(month_rows[i:i + 3].sum())
                     ax.annotate(q, xy=(i + (n_months - 1) / 2, 0), xycoords=("data", "axes fraction"),
-                                xytext=(0, -24), textcoords="offset points", ha="center", fontsize=9)
-            finish(fig, ax, "Вклады в хедлайн м/м, п.п.")
+                                xytext=(0, -22), textcoords="offset points", ha="center", fontsize=9)
+            bars = [h for h in ax.get_legend_handles_labels()[0] if h is not line]
+            title = (f"Вклады в SA-хедлайн {MM}, п.п." if cinfo["basis"].kind == "SA"
+                     else f"Вклады в хедлайн {MM} (nSA, детальные категории), п.п.")
+            finish(fig, ax, title, bars + [line], ncol=4)
 
-        # Лист 3: накопленная.
-        cu = report.cumulative
-        d = cu[cu["Дата"] >= start]
-        fig, ax = plt.subplots(figsize=(11.7, 6.8))
-        for i, column in enumerate(cu.columns[1:]):
-            ax.plot(d["Дата"], d[column], color=PALETTE_SIMPLE[i % len(PALETTE_SIMPLE)],
-                    lw=2.25 if i == 0 else 1.75, label=column.split(", % к ")[0])
-        ax.axhline(0, color=BRAND["grey"], lw=0.75)
-        date_axis(ax, d["Дата"])
-        finish(fig, ax, f"Накопленная инфляция: уровень цен, % к {report.cumulative_info['base_label']}",
-               legend=len(cu.columns) > 2)
+        # Лист 3: накопленная с начала года (хедлайн).
+        def ytd_figure(ytd, title, current, previous, pale):
+            years = list(ytd.columns[1:])
+            if not years:
+                return
+            fig, ax = new_axes()
+            months = range(12)
+            if pale is None:
+                for y in years:
+                    if y not in (current, previous):
+                        ax.plot(months, ytd[y], color=BRAND["light_grey"], lw=1.0)
+            else:
+                for k, y in reversed(list(enumerate(pale))):
+                    if y in years:
+                        ax.plot(months, ytd[y], color=PALE_YEAR_COLORS[k % len(PALE_YEAR_COLORS)],
+                                lw=1.5, label=y)
+            if previous in years:
+                ax.plot(months, ytd[previous], color=PREVIOUS_YEAR_COLOR, lw=2.25, label=previous)
+            if current in years:
+                ax.plot(months, ytd[current], color=CURRENT_YEAR_COLOR, lw=2.75, label=current)
+            ax.set_xticks(list(months))
+            ax.set_xticklabels(ytd["Месяц"])
+            ax.set_xlim(-0.5, 11.5)
+            zero_line(ax)
+            finish(fig, ax, title, ncol=7)
 
-        # Лист 4: монетарная / немонетарная.
+        info = report.cumulative_info
+        ytd_figure(report.cumulative, "Накопленная с начала года инфляция, %",
+                   info["current"], info["previous"], info["pale"])
+
+        # Лист 4: монетарная / немонетарная, м./м. и г./г.
         sp = report.split
         n1, n0 = report.split_info["names"]
-        measure = "м/м" if normalize_text(SPLIT_CHART) in ("м/м", "мм") else "г/г"
-        shown = sp[[f"{n1}, {measure}, %", f"{n0}, {measure}, %"]].notna().any(axis=1)
-        split_start = max(start, sp.loc[shown, "Дата"].min()) if shown.any() else start
-        d = sp[sp["Дата"] >= split_start]
-        fig, ax = plt.subplots(figsize=(11.7, 6.8))
-        ax.plot(d["Дата"], d[f"{n1}, {measure}, %"], color=BRAND["navy"], lw=2.25, label=n1)
-        ax.plot(d["Дата"], d[f"{n0}, {measure}, %"], color=BRAND["magenta"], lw=2.25, label=n0)
-        date_axis(ax, d["Дата"])
-        finish(fig, ax, f"{n1} и {n0.lower()} инфляция, {measure}, %")
+        for measure in (MM, YY):
+            shown = sp[[f"{n1}, {measure}, %", f"{n0}, {measure}, %"]].notna().any(axis=1)
+            split_start = max(start, sp.loc[shown, "Дата"].min()) if shown.any() else start
+            d = sp[sp["Дата"] >= split_start]
+            fig, ax = new_axes()
+            ax.plot(d["Дата"], d[f"{n1}, {measure}, %"], color=BRAND["navy"], lw=2.25, label=n1)
+            ax.plot(d["Дата"], d[f"{n0}, {measure}, %"], color=BRAND["magenta"], lw=2.25, label=n0)
+            month_axis(ax, d["Дата"])
+            zero_line(ax)
+            finish(fig, ax, f"{n1} и {n0.lower()} инфляция, {measure}, %")
 
         # Лист 5: матрица.
         m, minfo = report.matrix, report.matrix_info
         d = m[m["Дата"] >= minfo["window_start"]]
-        fig, ax = plt.subplots(figsize=(9.5, 7.5))
-        styles = [(BRAND["navy"], 70, True), (BRAND["grey_blue"], 45, True), (BRAND["light_grey"], 30, False)]
-        for t, tier in reversed(list(enumerate(minfo["tiers"]))):
-            color, size, label_points = styles[t]
+        fig, ax = plt.subplots(figsize=(10.0, 7.6))
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        ax.axhline(minfo["y_threshold"], color=AXIS_COLOR, lw=0.75, zorder=1)
+        ax.axvline(minfo["x_threshold"], color=AXIS_COLOR, lw=0.75, zorder=1)
+        sizes = (70, 45, 30)
+        for t in (2, 1, 0):
+            tier = minfo["tiers"][t]
             sel = d[tier].notna()
-            ax.scatter(d.loc[sel, minfo["x"]], d.loc[sel, tier], color=color, s=size, label=tier, zorder=3 - t)
-            if label_points:
-                for _, r in d[sel].iterrows():
-                    ax.annotate(r["Метка"], (r[minfo["x"]], r[tier]), xytext=(5, 0),
-                                textcoords="offset points", fontsize=9, color=color, va="center")
-        ax.axhline(minfo["y_threshold"], color=BRAND["grey"], lw=0.75)
-        ax.axvline(minfo["x_threshold"], color=BRAND["grey"], lw=0.75)
+            ax.scatter(d.loc[sel, minfo["x"]], d.loc[sel, tier], color=MATRIX_COLORS[t], s=sizes[t],
+                       label=tier, zorder=3 + (2 - t))
+            for _, r in d[sel].iterrows():
+                ax.annotate(r["Метка"], (r[minfo["x"]], r[tier]), xytext=(5, 0),
+                            textcoords="offset points", fontsize=8, color=MATRIX_LABEL_COLORS[t],
+                            va="center")
         ax.set_xlabel(minfo["x"])
         ax.set_ylabel(minfo["y"])
         ax.xaxis.set_major_formatter(comma)
-        finish(fig, ax, "Инфляция и разброс изменений цен по корзине")
+        ax.yaxis.set_major_formatter(comma)
+        handles, labels_ = ax.get_legend_handles_labels()
+        order = [labels_.index(t) for t in minfo["tiers"] if t in labels_]
+        finish(fig, ax, "Инфляция и разброс изменений цен по корзине", [handles[i] for i in order])
 
         # Листы 7+: категории.
         for cat in report.categories:
             t = cat["table"]
             d = t[t["Дата"] >= start]
-            fig, ax = plt.subplots(figsize=(11.7, 6.8))
-            ax.plot(d["Дата"], d["г/г, %"], color=BRAND["navy"], lw=2.25, label="г/г")
+            fig, ax = new_axes(y_right=False)
+            ax.plot(d["Дата"], d[f"{MM}, %"], color=BRAND["magenta"], lw=1.5, label=f"{MM} (левая шкала)")
             ax2 = ax.twinx()
-            ax2.plot(d["Дата"], d["м/м, %"], color=BRAND["magenta"], lw=1.5, label="м/м (правая шкала)")
-            ax2.spines["right"].set_visible(True)
+            ax2.plot(d["Дата"], d[f"{YY}, %"], color=BRAND["navy"], lw=2.25, label=f"{YY} (правая шкала)")
+            ax2.spines["top"].set_visible(False)
+            ax2.spines["left"].set_visible(False)
             ax2.yaxis.set_major_formatter(comma)
-            lines = ax.get_lines() + ax2.get_lines()
-            ax.legend(lines, [ln.get_label() for ln in lines], loc="upper left", fontsize=9)
-            date_axis(ax, d["Дата"])
-            finish(fig, ax, f"{cat['name']}: м/м и г/г, %", legend=False)
-
-            ytd = cat["ytd"]
-            if len(ytd.columns) < 2:
-                continue
-            fig, ax = plt.subplots(figsize=(11.7, 6.8))
-            for year in ytd.columns[1:]:
-                if year == cat["current_year"]:
-                    continue
-                prev = year == str(int(cat["current_year"]) - 1)
-                ax.plot(range(12), ytd[year], color=BRAND["navy"] if prev else BRAND["light_grey"],
-                        lw=1.75 if prev else 1.0, label=year if prev else None)
-            if cat["current_year"] in ytd:
-                ax.plot(range(12), ytd[cat["current_year"]], color=BRAND["magenta"], lw=2.75,
-                        marker="o", ms=4, label=cat["current_year"])
-            ax.set_xticks(range(12))
-            ax.set_xticklabels(ytd["Месяц"])
-            finish(fig, ax, f"{cat['name']}: накопленная с начала года инфляция, %")
+            month_axis(ax, d["Дата"])
+            finish(fig, ax, f"{cat['name']}: {MM} и {YY}, %", ax.get_lines() + ax2.get_lines())
+            ytd_figure(cat["ytd"], f"{cat['name']}: накопленная с начала года инфляция, %",
+                       cat["current_year"], str(int(cat["current_year"]) - 1), None)
 
     print(f"✅ PDF сохранен: {Path(path).resolve()}")
 
